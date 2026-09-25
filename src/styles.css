@@ -100,6 +100,7 @@ button, input, select { color-scheme: dark; }
 .drawer-summary div > span:first-child { color: var(--ink-faint); }
 .drawer-summary strong { font-size: 12px; }
 .drawer-note { color: var(--ink-faint); font-size: 10px; line-height: 1.5; }
+.trade-error { color: #ff9ba9; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 20px; opacity: 1; pointer-events: auto; }
 .confirm-modal { position: relative; width: min(100%, 410px); padding: 28px; border: 1px solid var(--line); border-radius: 9px; }
 .modal-icon { height: 38px; width: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--teal); margin-bottom: 20px; }

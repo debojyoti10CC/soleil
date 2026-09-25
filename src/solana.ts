@@ -1,7 +1,20 @@
 import { clusterApiUrl, ComputeBudgetProgram, Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js'
 
 const rpcUrl = import.meta.env.VITE_SOLANA_RPC_URL || clusterApiUrl('devnet')
-export const solanaConnection = new Connection(rpcUrl, 'confirmed')
+const publicDevnetRpcUrl = clusterApiUrl('devnet')
+export const solanaConnection = new Connection(rpcUrl, { commitment: 'confirmed', disableRetryOnRateLimit: true })
+const fallbackConnection = rpcUrl === publicDevnetRpcUrl ? null : new Connection(publicDevnetRpcUrl, { commitment: 'confirmed', disableRetryOnRateLimit: true })
+
+const retryableRpcError = (error: unknown) => /429|rate limit|too many requests|failed to fetch|fetch failed|\b50[234]\b/i.test(String(error))
+
+async function readWithFallback<T>(read: (connection: Connection) => Promise<T>): Promise<T> {
+  try {
+    return await read(solanaConnection)
+  } catch (error) {
+    if (!fallbackConnection || !retryableRpcError(error)) throw error
+    return read(fallbackConnection)
+  }
+}
 
 type PhantomProvider = {
   isPhantom?: boolean
@@ -74,12 +87,12 @@ export async function disconnectPhantom() {
 }
 
 export async function getSolBalance(address: string) {
-  const lamports = await solanaConnection.getBalance(new PublicKey(address), 'confirmed')
+  const lamports = await readWithFallback((connection) => connection.getBalance(new PublicKey(address), 'confirmed'))
   return lamports / 1_000_000_000
 }
 
 export async function accountExists(address: PublicKey) {
-  return Boolean(await solanaConnection.getAccountInfo(address, 'confirmed'))
+  return Boolean(await readWithFallback((connection) => connection.getAccountInfo(address, 'confirmed')))
 }
 
 const readU64 = (bytes: Uint8Array, offset: number) => {
@@ -174,38 +187,61 @@ export async function fetchSolMarket(): Promise<SolMarket | null> {
   }
 }
 
-export async function submitSolanaTransaction(instructions: TransactionInstruction[], sendTransaction?: (transaction: Transaction, connection: Connection) => Promise<string>, ownerAddress?: string) {
+export async function submitSolanaTransaction(instructions: TransactionInstruction[], sendTransaction?: (transaction: Transaction, connection: Connection) => Promise<string>, ownerAddress?: string, onStage?: (stage: 'preparing' | 'wallet' | 'confirming') => void) {
   const provider = sendTransaction ? undefined : getPhantom()
   const address = ownerAddress || provider?.publicKey?.toString()
   if (!sendTransaction && !address) throw new Error('Connect a Solana wallet before signing this order.')
 
   const publicKey = new PublicKey(address || provider?.publicKey?.toString() || '')
-  const { blockhash, lastValidBlockHeight } = await solanaConnection.getLatestBlockhash('confirmed')
-  const transaction = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash }).add(
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }),
-    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
-    ...instructions,
-  )
-
-  try {
-    const simulation = await solanaConnection.simulateTransaction(transaction)
-    if (simulation.value.err) throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}`)
-  } catch (error) {
-    // A fresh blockhash can be rejected by a lagging RPC during simulation. The wallet
-    // submission still has its own confirmation path, so let it proceed in that case.
-    if (!String(error).includes('BlockhashNotFound')) throw error
+  onStage?.('preparing')
+  let prepared: { transaction: Transaction; connection: Connection } | null = null
+  for (const connection of [solanaConnection, fallbackConnection].filter((item): item is Connection => item !== null)) {
+    try {
+      const { blockhash } = await connection.getLatestBlockhash('confirmed')
+      const transaction = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash }).add(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
+        ...instructions,
+      )
+      try {
+        const simulation = await connection.simulateTransaction(transaction)
+        if (simulation.value.err) throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}`)
+      } catch (error) {
+        // A fresh blockhash can be rejected by a lagging RPC during simulation.
+        if (!String(error).includes('BlockhashNotFound')) throw error
+      }
+      prepared = { transaction, connection }
+      break
+    } catch (error) {
+      if (connection === fallbackConnection || !fallbackConnection || !retryableRpcError(error)) throw error
+    }
   }
+  if (!prepared) throw new Error('Devnet RPC is unavailable. Try again shortly.')
 
+  onStage?.('wallet')
   const signature = sendTransaction
-    ? await sendTransaction(transaction, solanaConnection)
+    ? await sendTransaction(prepared.transaction, prepared.connection)
     : await (async () => {
       if (!provider) throw new Error('Connect a Solana wallet before signing this order.')
-      return provider.signAndSendTransaction(transaction)
+      return provider.signAndSendTransaction(prepared.transaction)
     })()
   const resolvedSignature = typeof signature === 'string' ? signature : signature.signature
-  const confirmation = await solanaConnection.confirmTransaction({ signature: resolvedSignature, blockhash, lastValidBlockHeight }, 'confirmed')
-  if (confirmation.value.err) throw new Error(`Transaction failed on Solana: ${JSON.stringify(confirmation.value.err)}`)
-  return resolvedSignature
+  onStage?.('confirming')
+  const confirmationConnections = [prepared.connection, prepared.connection === solanaConnection ? fallbackConnection : solanaConnection].filter((item): item is Connection => item !== null)
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    for (const connection of confirmationConnections) {
+      try {
+        const status = (await connection.getSignatureStatuses([resolvedSignature], { searchTransactionHistory: true })).value[0]
+        if (status?.err) throw new Error(`Transaction failed on Solana: ${JSON.stringify(status.err)}`)
+        if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return resolvedSignature
+      } catch (error) {
+        if (!retryableRpcError(error)) throw error
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
+  }
+  throw new Error(`Transaction submitted as ${resolvedSignature}, but Devnet confirmation is pending. Check Explorer before retrying.`)
 }
 
 export const getExplorerTransactionUrl = (signature: string) => `https://explorer.solana.com/tx/${signature}?cluster=devnet`

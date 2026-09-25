@@ -153,6 +153,8 @@ function App() {
   const [walletBalance, setWalletBalance] = useState(0)
 
   const [walletBusy, setWalletBusy] = useState(false)
+  const [tradeStage, setTradeStage] = useState<'preparing' | 'wallet' | 'confirming'>('preparing')
+  const [tradeError, setTradeError] = useState('')
 
   // Portfolio state is authoritative on Solana. Do not hydrate positions from
 
@@ -540,6 +542,7 @@ function App() {
 
   const chooseContract = (item: OptionSeries, kind: OptionKind) => {
 
+    setTradeError('')
     setSelectedStrike(item.strike)
 
     setSelectedKind(kind)
@@ -566,6 +569,8 @@ function App() {
 
     if (!executionEnabled) return notify('Wait for a fresh maker quote before trading.')
 
+    setTradeError('')
+    setTradeStage('preparing')
     setWalletBusy(true)
 
     try {
@@ -590,7 +595,7 @@ function App() {
 
       instructions.push(buildOpenPositionInstruction({ programId, owner, kind: selectedKind, side: tradeSide, strike: selectedStrike, quantity, premium: tradeSide === 'buy' ? selectedQuote.ask : selectedQuote.bid, maker: new PublicKey(executableQuote.maker), quoteNonce: executableQuote.nonce, quoteAddress: executableQuote.quoteAddress, expiryAt, premiumLamports: quoteTotalLamports(executableQuote.premiumLamportsPerSol, quantity), collateralLamports: tradeSide === 'sell' ? quoteTotalLamports(executableQuote.collateralLamportsPerSol, quantity) : 0 }))
 
-      const signature = await submitSolanaTransaction(instructions, sendTransaction, walletAddress)
+      const signature = await submitSolanaTransaction(instructions, sendTransaction, walletAddress, setTradeStage)
 
       const newPosition: Position = {
 
@@ -634,19 +639,20 @@ function App() {
 
       setPositions((current) => [...current, newPosition])
 
-      await syncOnchainPositions(owner.toBase58())
-
-      setWalletBalance(await getSolBalance(owner.toBase58()))
-
       setTradePanelOpen(false)
 
       notify(`${tradeSide === 'buy' ? 'Buy' : 'Sell'} position opened on devnet`)
 
       navigate('portfolio')
 
+      void syncOnchainPositions(owner.toBase58())
+      void getSolBalance(owner.toBase58()).then((balance) => { if (walletRef.current === owner.toBase58()) setWalletBalance(balance) }).catch(() => undefined)
+
     } catch (error) {
 
-      notify(error instanceof Error ? error.message : 'Order was not submitted')
+      const message = error instanceof Error ? error.message : 'Order was not submitted'
+      setTradeError(message)
+      notify(message)
 
     } finally {
 
@@ -791,7 +797,7 @@ function App() {
 
 
 
-      {tradePanelOpen && selectedSeries && selectedQuote && <TradePanel appMode={appMode} quoteMode={quoteMode} walletBusy={walletBusy} kind={selectedKind} series={selectedSeries} side={tradeSide} setSide={setTradeSide} quantity={quantity} quantityText={quantityText} setQuantityText={setQuantityText} tradeValue={tradeValue} walletConnected={walletConnected} executionEnabled={executionEnabled} onClose={() => setTradePanelOpen(false)} onSubmit={placeTrade} />}
+      {tradePanelOpen && selectedSeries && selectedQuote && <TradePanel appMode={appMode} quoteMode={quoteMode} walletBusy={walletBusy} tradeStage={tradeStage} tradeError={tradeError} kind={selectedKind} series={selectedSeries} side={tradeSide} setSide={setTradeSide} quantity={quantity} quantityText={quantityText} setQuantityText={setQuantityText} tradeValue={tradeValue} walletConnected={walletConnected} executionEnabled={executionEnabled} onClose={() => setTradePanelOpen(false)} onSubmit={placeTrade} />}
 
       {mobileWalletOpen && <MobileWalletSheet isMobile={window.matchMedia('(max-width: 760px)').matches} hasDetectedWallet={wallets.some(({ readyState }) => readyState === WalletReadyState.Installed)} onClose={() => setMobileWalletOpen(false)} onUseDetected={async () => { setMobileWalletOpen(false); const detected = wallets.find(({ readyState }) => readyState === WalletReadyState.Installed); if (!detected) return; if (wallet?.adapter.name === detected.adapter.name) await connectWalletDirect(); else select(detected.adapter.name) }} onChooseWallet={() => { setMobileWalletOpen(false); setWalletModalVisible(true) }} />}
 
@@ -951,7 +957,7 @@ function MarketTicket({ appMode, quoteMode, series, kind, side, setSide, spot, q
 
 
 
-function TradePanel({ appMode, quoteMode, walletBusy, kind, series, side, setSide, quantity, quantityText, setQuantityText, tradeValue, walletConnected, executionEnabled, onClose, onSubmit }: { appMode: AppMode; quoteMode: 'maker' | 'indicative' | 'offline'; walletBusy: boolean; kind: OptionKind; series: OptionSeries; side: TradeSide; setSide: (side: TradeSide) => void; quantity: number; quantityText: string; setQuantityText: (value: string) => void; tradeValue: number; walletConnected: boolean; executionEnabled: boolean; onClose: () => void; onSubmit: () => void }) {
+function TradePanel({ appMode, quoteMode, walletBusy, tradeStage, tradeError, kind, series, side, setSide, quantity, quantityText, setQuantityText, tradeValue, walletConnected, executionEnabled, onClose, onSubmit }: { appMode: AppMode; quoteMode: 'maker' | 'indicative' | 'offline'; walletBusy: boolean; tradeStage: 'preparing' | 'wallet' | 'confirming'; tradeError: string; kind: OptionKind; series: OptionSeries; side: TradeSide; setSide: (side: TradeSide) => void; quantity: number; quantityText: string; setQuantityText: (value: string) => void; tradeValue: number; walletConnected: boolean; executionEnabled: boolean; onClose: () => void; onSubmit: () => void }) {
 
   const quote = series[kind]
   const sizeMessage = quoteMode === 'maker' ? quoteSizeMessage(quote, side, quantity) : null
@@ -965,10 +971,10 @@ function TradePanel({ appMode, quoteMode, walletBusy, kind, series, side, setSid
   const collateral = side === 'sell' && terms ? quoteTotalLamports(terms.collateralLamportsPerSol, quantity) : 0
 
   const unavailableLabel = appMode === 'planning' ? 'Planning preview' : quoteMode === 'offline' ? 'Maker service offline' : sizeMessage ?? 'Maker quote required'
-  const actionLabel = walletBusy ? 'Confirming transaction…' : executionEnabled ? (walletConnected ? `Sign ${side} position` : 'Connect wallet to trade') : unavailableLabel
-  const drawerNote = walletBusy ? 'Confirm the transaction in your wallet. The signed position will appear after Devnet confirms it.' : executionEnabled ? 'Your signed order uses a validated maker quote and the deployed Soleil program.' : appMode === 'planning' ? 'Planning mode uses indicative prices only. Switch to Devnet to submit.' : quoteMode === 'offline' ? 'Devnet mode is waiting for the maker service to publish on-chain quotes.' : sizeMessage ? 'Reduce the quantity or wait for a larger maker quote.' : 'Devnet mode is waiting for a live maker quote.'
+  const actionLabel = walletBusy ? tradeStage === 'preparing' ? 'Checking Devnet and quote…' : tradeStage === 'wallet' ? 'Approve in your wallet…' : 'Confirming on Devnet…' : executionEnabled ? (walletConnected ? `Sign ${side} position` : 'Connect wallet to trade') : unavailableLabel
+  const drawerNote = walletBusy ? tradeStage === 'wallet' ? 'Open your wallet extension and approve or reject the transaction.' : tradeStage === 'confirming' ? 'Wallet submitted the transaction. Waiting for Solana confirmation.' : 'Checking market and quote accounts before your wallet opens.' : executionEnabled ? 'Your signed order uses a validated maker quote and the deployed Soleil program.' : appMode === 'planning' ? 'Planning mode uses indicative prices only. Switch to Devnet to submit.' : quoteMode === 'offline' ? 'Devnet mode is waiting for the maker service to publish on-chain quotes.' : sizeMessage ? 'Reduce the quantity or wait for a larger maker quote.' : 'Devnet mode is waiting for a live maker quote.'
 
-  return <div className="drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="trade-drawer"><div className="drawer-head"><div><p className="eyebrow">TRADE CONTRACT</p><h2>SOL {kind === 'put' ? 'Put' : 'Call'}</h2><p>Strike {money(series.strike, 0)} · {series.expiryLabel} · {series.expiryDays} days</p></div><button className="icon-button" onClick={onClose} aria-label="Close trade ticket"><X size={18} /></button></div><div className="trade-tabs" role="tablist" aria-label="Trade side"><button className={side === 'buy' ? 'active' : ''} onClick={() => setSide('buy')}>Buy</button><button className={side === 'sell' ? 'active' : ''} onClick={() => setSide('sell')}>Sell</button></div><label className="form-field"><span>Quantity <small>SOL</small></span><div className="input-shell"><input value={quantityText} type="number" min={minimumTradeSizeSol} step="any" inputMode="decimal" onChange={(event) => setQuantityText(event.target.value)} /><span>SOL</span></div></label><label className="form-field"><span>Limit price <small>per SOL</small></span><div className="input-shell"><input value={executionPrice.toFixed(2)} readOnly /><span>USD</span></div></label><div className="drawer-summary"><div><span>{side === 'buy' ? 'Best ask' : 'Best bid'}</span><strong>{money(executionPrice)}</strong></div><div><span>{side === 'buy' ? 'Estimated cost' : 'Estimated proceeds'}</span><strong>{money(tradeValue)}</strong></div><div><span>On-chain premium</span><strong>{premium > 0 ? solAmount(premium) : '—'}</strong></div>{side === 'sell' && <div><span>Collateral locked</span><strong>{collateral > 0 ? solAmount(collateral) : '—'}</strong></div>}<div><span>Settlement</span><span className="verified"><Check size={13} /> Solana program</span></div></div><button className="primary-action" onClick={onSubmit} disabled={!executionEnabled || walletBusy}>{actionLabel} <ArrowRight size={15} /></button><p className="drawer-note">{drawerNote}</p></aside></div>
+  return <div className="drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="trade-drawer"><div className="drawer-head"><div><p className="eyebrow">TRADE CONTRACT</p><h2>SOL {kind === 'put' ? 'Put' : 'Call'}</h2><p>Strike {money(series.strike, 0)} · {series.expiryLabel} · {series.expiryDays} days</p></div><button className="icon-button" onClick={onClose} aria-label="Close trade ticket"><X size={18} /></button></div><div className="trade-tabs" role="tablist" aria-label="Trade side"><button className={side === 'buy' ? 'active' : ''} onClick={() => setSide('buy')}>Buy</button><button className={side === 'sell' ? 'active' : ''} onClick={() => setSide('sell')}>Sell</button></div><label className="form-field"><span>Quantity <small>SOL</small></span><div className="input-shell"><input value={quantityText} type="number" min={minimumTradeSizeSol} step="any" inputMode="decimal" onChange={(event) => setQuantityText(event.target.value)} /><span>SOL</span></div></label><label className="form-field"><span>Limit price <small>per SOL</small></span><div className="input-shell"><input value={executionPrice.toFixed(2)} readOnly /><span>USD</span></div></label><div className="drawer-summary"><div><span>{side === 'buy' ? 'Best ask' : 'Best bid'}</span><strong>{money(executionPrice)}</strong></div><div><span>{side === 'buy' ? 'Estimated cost' : 'Estimated proceeds'}</span><strong>{money(tradeValue)}</strong></div><div><span>On-chain premium</span><strong>{premium > 0 ? solAmount(premium) : '—'}</strong></div>{side === 'sell' && <div><span>Collateral locked</span><strong>{collateral > 0 ? solAmount(collateral) : '—'}</strong></div>}<div><span>Settlement</span><span className="verified"><Check size={13} /> Solana program</span></div></div><button className="primary-action" onClick={onSubmit} disabled={!executionEnabled || walletBusy}>{actionLabel} <ArrowRight size={15} /></button><p className="drawer-note">{drawerNote}</p>{tradeError && <p className="trade-error" role="alert">{tradeError}</p>}</aside></div>
 
 }
 
