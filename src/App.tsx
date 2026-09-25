@@ -88,7 +88,7 @@ const quoteForSide = (quote: OptionQuote | undefined, side: TradeSide): QuoteTer
 
 const hasExecutableQuote = (quote: OptionQuote | undefined, side: TradeSide, quantity = 0) => {
   const terms = quoteForSide(quote, side)
-  return Boolean(terms && terms.expiresAt > Date.now() / 1000 + 15 && terms.remainingSize >= quantity)
+  return Boolean(terms && terms.expiresAt > Date.now() / 1000 + 15 && terms.remainingSize > 0 && terms.remainingSize >= quantity)
 }
 
 const quoteSizeMessage = (quote: OptionQuote | undefined, side: TradeSide, quantity: number) => {

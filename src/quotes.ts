@@ -45,7 +45,7 @@ const isTerms = (value: unknown): value is QuoteTerms => {
     && terms.collateralLamportsPerSol > 0
     && Number.isSafeInteger(terms.collateralLamportsPerSol)
     && typeof terms.expiresAt === 'number' && Number.isSafeInteger(terms.expiresAt) && terms.expiresAt > Date.now() / 1000
-    && typeof terms.remainingSize === 'number' && Number.isFinite(terms.remainingSize) && terms.remainingSize > 0
+    && typeof terms.remainingSize === 'number' && Number.isFinite(terms.remainingSize) && terms.remainingSize >= 0
 }
 
 const isQuote = (value: unknown): value is { bid: number; ask: number; iv: number; bidQuote: QuoteTerms; askQuote: QuoteTerms } => {
