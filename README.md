@@ -342,16 +342,39 @@ Expiry + strike chain
 
 The program, rather than the frontend, verifies the quote and moves SOL. A quote must be active, unexpired, the correct side, the correct market, and large enough for the requested quantity. This prevents stale, oversized, mismatched, or replayed quote metadata from becoming a position.
 
+### On-chain account model
+
+| Account | PDA seeds | Purpose |
+| --- | --- | --- |
+| `Market` | `market`, `SOL`, strike cents, expiry, kind | Authority, oracle, expiry, strike, liquidity, and reserved notional |
+| `Quote` | `quote`, market, maker, nonce | Side, price, size, fill state, expiry, premium, and collateral terms |
+| `Position` | `position`, owner, market, expiry | Owner, side, quantity, entry, lifecycle status, collateral, payout, and reserved lamports |
+
+The Rust instruction enum and the TypeScript builders share the same explicit Borsh layout. The supported instructions are `InitializeMarket`, `OpenPosition`, `ClosePosition`, `Settle`, `PublishQuote`, `DepositLiquidity`, and `WithdrawLiquidity`.
+
+### API contract
+
+| Route | Method | Role |
+| --- | --- | --- |
+| `/api/health` | `GET` | Reports whether the server has a complete operator configuration |
+| `/api/quotes` | `GET` | Returns active, bounded bid/ask quote references for `SOL` and the selected expiry |
+| `/api/settle` | `GET` | Reads an expired market/position pair and submits oracle-signed settlement |
+
+The quote response must carry exact `expiryAt` and `expiryLabel`, a strike, numeric bid/ask/IV values, and separate executable bid and ask terms: quote PDA, maker, nonce, premium lamports per SOL, and positive collateral lamports per SOL. If that contract is not satisfied, the browser refuses to submit.
+
 ## Devnet deployment
 
 The settlement program is deployed on Solana Devnet:
 
 - **Program:** [`3xZZq7Wd23M1eyggca8KCbhNx6FcNpsKTHGJq751n66k`](https://explorer.solana.com/address/3xZZq7Wd23M1eyggca8KCbhNx6FcNpsKTHGJq751n66k?cluster=devnet)
+- **Program-data account:** [`GyBq7QKwRBM51XWYLxD847kaJCxdsv9s51Uiu2mBTz4p`](https://explorer.solana.com/address/GyBq7QKwRBM51XWYLxD847kaJCxdsv9s51Uiu2mBTz4p?cluster=devnet)
+- **Deployment transaction:** [`4okq6ufR6Ejur8EuxmnyVHNwqnehcsREiFKCtmXtoxSNaPRCyzTabCtGV96o2Qq1TETF4RREWRt6baKXLQqLWM6T`](https://explorer.solana.com/tx/4okq6ufR6Ejur8EuxmnyVHNwqnehcsREiFKCtmXtoxSNaPRCyzTabCtGV96o2Qq1TETF4RREWRt6baKXLQqLWM6T?cluster=devnet)
+- **Deployment slot:** `503929520` · `2026-09-25T09:47:17Z`
 - **RPC:** [`api.devnet.solana.com`](https://api.devnet.solana.com)
 - **Frontend:** [soleil-chi-three.vercel.app](https://soleil-chi-three.vercel.app/#market)
 - **Deployment details:** [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
 
-The deployed bytes are checked against `target/deploy/soleil_settlement.so`. The program-data account, deployment transaction, byte hash, and exact verification commands are recorded in the deployment document.
+The deployed bytes are checked against `target/deploy/soleil_settlement.so` (120,552 bytes; SHA-256 `8852b216462933aa9489607a4ece4a08e3135c76b43679baa117e4ad80efb3a0`). The integration crate is a local `ProgramTest` harness, not a second deployable program.
 
 ## Run locally
 
