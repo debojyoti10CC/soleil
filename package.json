@@ -30,5 +30,13 @@
     "@types/react-dom": "latest",
     "typescript": "latest",
     "vitest": "^5.0.1"
+  },
+  "engines": {
+    "node": "20.x"
+  },
+  "overrides": {
+    "rpc-websockets": {
+      "uuid": "9.0.1"
+    }
   }
 }
