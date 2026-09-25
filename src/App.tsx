@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { useWallet } from '@solana/wallet-adapter-react'
+import { WalletReadyState } from '@solana/wallet-adapter-base'
 import { useWalletModal } from '@solana/wallet-adapter-react-ui'
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js'
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronDown, CircleHelp, Clock3, Copy, ExternalLink, Grid2X2, LayoutDashboard, LineChart, Menu, RefreshCw, Search, ShieldCheck, Sparkles, Wallet, X } from 'lucide-react'
@@ -107,7 +108,7 @@ function SolanaLogo({ className = '' }: { className?: string }) {
 
 function App() {
 
-  const { publicKey, connected, connecting, connect, disconnect, sendTransaction, wallet } = useWallet()
+  const { publicKey, connected, connecting, connect, disconnect, sendTransaction, wallet, wallets, select } = useWallet()
 
   const { setVisible: setWalletModalVisible } = useWalletModal()
   const [view, setView] = useState<View>(() => (window.location.hash.slice(1) as View) || 'market')
@@ -481,7 +482,7 @@ function App() {
 
   const connectWallet = async (): Promise<null> => {
     if (walletBusy || connecting || connected) return null
-    if (window.matchMedia('(max-width: 760px)').matches) {
+    if (window.matchMedia('(max-width: 760px)').matches || !wallets.some(({ readyState }) => readyState === WalletReadyState.Installed)) {
       setMobileWalletOpen(true)
       return null
     }
@@ -785,7 +786,7 @@ function App() {
 
       {tradePanelOpen && selectedSeries && selectedQuote && <TradePanel appMode={appMode} quoteMode={quoteMode} walletBusy={walletBusy} kind={selectedKind} series={selectedSeries} side={tradeSide} setSide={setTradeSide} quantity={quantity} quantityText={quantityText} setQuantityText={setQuantityText} tradeValue={tradeValue} walletConnected={walletConnected} executionEnabled={executionEnabled} onClose={() => setTradePanelOpen(false)} onSubmit={placeTrade} />}
 
-      {mobileWalletOpen && <MobileWalletSheet hasDetectedWallet={Boolean(wallet)} onClose={() => setMobileWalletOpen(false)} onUseDetected={async () => { setMobileWalletOpen(false); await connectWalletDirect() }} onChooseWallet={() => { setMobileWalletOpen(false); setWalletModalVisible(true) }} />}
+      {mobileWalletOpen && <MobileWalletSheet isMobile={window.matchMedia('(max-width: 760px)').matches} hasDetectedWallet={wallets.some(({ readyState }) => readyState === WalletReadyState.Installed)} onClose={() => setMobileWalletOpen(false)} onUseDetected={async () => { setMobileWalletOpen(false); const detected = wallets.find(({ readyState }) => readyState === WalletReadyState.Installed); if (!detected) return; if (wallet?.adapter.name === detected.adapter.name) await connectWalletDirect(); else select(detected.adapter.name) }} onChooseWallet={() => { setMobileWalletOpen(false); setWalletModalVisible(true) }} />}
 
       {guardModalOpen && <GuardModal duration={guardDuration} premium={guardPremium} strike={guardStrike} quantity={walletBalance} onClose={() => setGuardModalOpen(false)} onConfirm={async () => { if (!guardExecutionEnabled || walletBusy) return; setWalletBusy(true); try { const programId = getSettlementProgramId(); const guardTerms = guardQuote?.put.askQuote; if (!programId || !walletAddress || !guardQuote || !guardTerms || !hasExecutableQuote(guardQuote.put, 'buy')) throw new Error('A live maker quote is required for protection.'); const owner = new PublicKey(walletAddress); const expiryAt = guardQuote.expiryAt ?? expiryUnix(guardDuration); const market = deriveMarketPda(programId, guardStrike, expiryAt, 'put'); const instructions: TransactionInstruction[] = []; if (!await accountExists(market)) throw new Error('This protection market is not initialized by its maker yet.'); instructions.push(buildProtectionInstruction({ programId, owner, strike: guardStrike, quantity: walletBalance, floor: guardFloor, premium: guardQuote.put.ask, maker: new PublicKey(guardTerms.maker), quoteNonce: guardTerms.nonce, quoteAddress: guardTerms.quoteAddress, expiryAt, premiumLamports: quoteTotalLamports(guardTerms.premiumLamportsPerSol, walletBalance) })); const signature = await submitSolanaTransaction(instructions, sendTransaction, walletAddress); await syncOnchainPositions(walletAddress); setWalletBalance(await getSolBalance(walletAddress)); setGuardModalOpen(false); navigate('portfolio'); notify(`Protection position opened · ${signature.slice(0, 8)}...`) } catch (error) { notify(error instanceof Error ? error.message : 'Protection was not submitted') } finally { setWalletBusy(false) } }} />}
 
@@ -798,12 +799,12 @@ function App() {
 }
 
 
-function MobileWalletSheet({ hasDetectedWallet, onClose, onUseDetected, onChooseWallet }: { hasDetectedWallet: boolean; onClose: () => void; onUseDetected: () => void | Promise<void>; onChooseWallet: () => void }) {
+function MobileWalletSheet({ isMobile, hasDetectedWallet, onClose, onUseDetected, onChooseWallet }: { isMobile: boolean; hasDetectedWallet: boolean; onClose: () => void; onUseDetected: () => void | Promise<void>; onChooseWallet: () => void }) {
   const currentUrl = typeof window === 'undefined' ? '' : window.location.href
-  const phantomUrl = `https://phantom.app/ul/browse/${encodeURIComponent(currentUrl)}`
+  const phantomUrl = `https://phantom.app/ul/browse/${encodeURIComponent(currentUrl)}?ref=${encodeURIComponent(window.location.origin)}`
   const solflareUrl = `https://solflare.com/ul/v1/browse/${encodeURIComponent(currentUrl)}`
 
-  return <div className="mobile-wallet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="mobile-wallet-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-wallet-title"><div className="mobile-wallet-head"><div><p className="eyebrow">MOBILE WALLET</p><h2 id="mobile-wallet-title">Connect to Soleil</h2><p>Use a wallet you already trust. Soleil never holds your keys.</p></div><button className="icon-button" onClick={onClose} aria-label="Close wallet options"><X size={18} /></button></div>{hasDetectedWallet && <button className="mobile-wallet-primary" onClick={onUseDetected}><Wallet size={16} />Connect in this browser <ArrowRight size={15} /></button>}<button className="mobile-wallet-secondary" onClick={onChooseWallet}><Wallet size={16} />Choose another wallet <ArrowRight size={15} /></button><div className="mobile-wallet-divider"><span>Open directly in</span></div><div className="mobile-wallet-links"><a href={phantomUrl}>Phantom</a><a href={solflareUrl}>Solflare</a></div><p className="mobile-wallet-note">After approval, return to this page to sign devnet orders.</p></section></div>
+  return <div className="mobile-wallet-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="mobile-wallet-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-wallet-title"><div className="mobile-wallet-head"><div><p className="eyebrow">CONNECT WALLET</p><h2 id="mobile-wallet-title">Connect to Soleil</h2><p>{isMobile ? 'Open Soleil inside your wallet app to connect and sign.' : 'This browser cannot reach Phantom on your phone. Open Soleil inside Phantom on your phone, or use the Phantom extension in desktop Chrome.'}</p></div><button className="icon-button" onClick={onClose} aria-label="Close wallet options"><X size={18} /></button></div>{hasDetectedWallet && <button className="mobile-wallet-primary" onClick={onUseDetected}><Wallet size={16} />Connect in this browser <ArrowRight size={15} /></button>}{isMobile && <><button className="mobile-wallet-secondary" onClick={onChooseWallet}><Wallet size={16} />Choose another wallet <ArrowRight size={15} /></button><div className="mobile-wallet-divider"><span>Open directly in</span></div><div className="mobile-wallet-links"><a href={phantomUrl}>Phantom</a><a href={solflareUrl}>Solflare</a></div><p className="mobile-wallet-note">Stay in the wallet browser to approve and sign devnet orders.</p></>}{!isMobile && <p className="mobile-wallet-note">On your phone, open Phantom, use its browser, then visit soleil-chi-three.vercel.app. Your phone wallet cannot sign for this desktop page.</p>}</section></div>
 }
 
 

@@ -599,8 +599,19 @@ main { max-width: 1320px; padding: 30px 40px 80px; }
 }
 
 /* Mobile layout: preserve the desktop palette while giving each surface room to breathe. */
-.mobile-wallet-backdrop { display: none; }
-.mobile-wallet-sheet { display: none; }
+.mobile-wallet-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgba(2, 5, 8, .72); padding: 20px; }
+.mobile-wallet-sheet { display: block; width: min(100%, 430px); padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: 0 18px 45px rgba(0,0,0,.35); }
+.mobile-wallet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.mobile-wallet-head h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.04em; }
+.mobile-wallet-head p:last-child { margin: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.45; }
+.mobile-wallet-primary, .mobile-wallet-secondary { width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--accent); border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; font: inherit; font-size: 13px; font-weight: 600; }
+.mobile-wallet-primary { background: var(--accent); color: var(--accent-ink); }
+.mobile-wallet-secondary { background: transparent; color: var(--accent); }
+.mobile-wallet-divider { display: flex; align-items: center; gap: 10px; margin: 20px 0 12px; color: var(--ink-faint); font-size: 10px; }
+.mobile-wallet-divider::before, .mobile-wallet-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
+.mobile-wallet-links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mobile-wallet-links a { min-height: 42px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); font-size: 12px; text-decoration: none; }
+.mobile-wallet-note { margin: 14px 0 0; color: var(--ink-faint); font-size: 11px; line-height: 1.45; text-align: center; }
 
 @media (max-width: 780px) {
   .topbar { min-height: 62px; height: auto; padding: 10px 14px; gap: 10px; }
