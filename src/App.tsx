@@ -481,7 +481,11 @@ function App() {
   }
 
   const connectWallet = async (): Promise<null> => {
-    if (walletBusy || connecting || connected) return null
+    if (walletBusy || connected) return null
+    if (connecting) {
+      setWalletModalVisible(true)
+      return null
+    }
     if (window.matchMedia('(max-width: 760px)').matches || !wallets.some(({ readyState }) => readyState === WalletReadyState.Installed)) {
       setMobileWalletOpen(true)
       return null
@@ -762,7 +766,7 @@ function App() {
 
           <div className="wallet-wrap">
 
-            <button className={`wallet-button ${walletConnected ? 'connected' : ''}`} onClick={() => walletConnected ? setWalletMenuOpen((open) => !open) : connectWallet()} disabled={walletBusy || connecting}><Wallet size={14} /><span>{walletBusy || connecting ? 'Connecting...' : walletConnected ? shortAddress(walletAddress) : 'Connect wallet'}</span><ChevronDown size={13} /></button>
+            <button className={`wallet-button ${walletConnected ? 'connected' : ''}`} onClick={() => walletConnected ? setWalletMenuOpen((open) => !open) : connectWallet()} disabled={walletBusy}><Wallet size={14} /><span>{walletBusy ? 'Connecting...' : walletConnected ? shortAddress(walletAddress) : connecting ? 'Choose wallet' : 'Connect wallet'}</span><ChevronDown size={13} /></button>
 
             {walletMenuOpen && <div className="wallet-menu"><span className="wallet-menu-title">Connected wallet</span><strong>{shortAddress(walletAddress)}</strong><span className="wallet-balance">{walletBalance.toFixed(4)} SOL on devnet</span><button className="faucet-button" onClick={requestFaucet}>Get 1 devnet SOL</button><a href={getExplorerAddressUrl(walletAddress)} target="_blank" rel="noreferrer">View on Explorer <ExternalLink size={12} /></a><button onClick={disconnectWallet}>Disconnect</button></div>}
 
