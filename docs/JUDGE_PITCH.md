@@ -2,6 +2,8 @@
 
 Use this page as a speaking script and screen-share map. The app is a Solana **Devnet** prototype. Devnet SOL is test currency; do not describe demo trades as real-money activity.
 
+On a phone, open the [visual flowcharts](https://soleil-chi-three.vercel.app/judge-flows.html). They use ordinary HTML cards and do not require Mermaid support.
+
 ## The one sentence
 
 **Soleil helps people protect SOL they already hold: choose a value floor in Guard, review a put option in Market, sign with a wallet, and verify the position on Solana.**

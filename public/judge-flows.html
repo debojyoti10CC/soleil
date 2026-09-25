@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#15111b">
+  <meta name="description" content="Four phone-friendly diagrams explaining Soleil's Devnet options prototype.">
+  <title>Soleil · Judge flows</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #100e14; color: #f7f2fa; line-height: 1.48; }
+    a { color: inherit; }
+    main { width: min(100%, 640px); margin: auto; padding: 28px 18px 60px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: #e9baf6; font-weight: 800; letter-spacing: -.04em; font-size: 23px; text-decoration: none; }
+    .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 10px; background: #dba9f2; color: #211329; font-size: 23px; }
+    .eyebrow { margin: 32px 0 8px; color: #dfaef4; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(34px, 9vw, 51px); line-height: 1.08; letter-spacing: -.055em; }
+    .intro { margin: 15px 0 22px; color: #c9bdcf; font-size: 16px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 32px; }
+    nav a { padding: 8px 12px; border: 1px solid #46394c; border-radius: 999px; color: #e8d9ec; font-size: 13px; text-decoration: none; }
+    nav a:hover, nav a:focus-visible { background: #2b2131; outline-color: #dfabf0; }
+    section { margin: 24px 0; padding: 22px 16px 20px; border: 1px solid #3d3142; border-radius: 22px; background: #1a171f; }
+    section h2 { margin: 0 0 5px; font-size: 24px; letter-spacing: -.035em; }
+    .subtitle { margin: 0 0 23px; color: #b9acbf; font-size: 14px; }
+    .step { position: relative; padding: 14px 15px; border: 1px solid #55445c; border-radius: 15px; background: #251f2a; }
+    .step strong { display: block; font-size: 16px; }
+    .step span { display: block; margin-top: 3px; color: #c5b8cb; font-size: 13px; }
+    .step.feature { border-color: #c78cdb; background: #302338; }
+    .step.chain { border-color: #6fae9f; background: #1d2b29; }
+    .step.chain strong { color: #a9e4d3; }
+    .connector { width: 2px; height: 22px; margin: 0 auto; background: #946ca1; }
+    .connector::after { content: ""; display: block; position: relative; top: 18px; left: -4px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #946ca1; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .split .step { min-height: 102px; padding: 12px; }
+    .split .step strong { font-size: 14px; }
+    .split .step span { font-size: 12px; }
+    .tag { display: inline-block; width: fit-content; margin: 0 0 6px; padding: 3px 8px; border-radius: 999px; background: #45304e; color: #f0cafa; font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .tag.real { background: #244339; color: #a7e9d1; }
+    .tag.model { background: #4c382e; color: #ffd9a3; }
+    .say { margin: 19px 1px 0; padding: 13px 14px; border-left: 3px solid #dba9f2; color: #e3d7e7; font-size: 14px; background: #231c29; border-radius: 0 10px 10px 0; }
+    .say b { color: #f0c7fa; }
+    .note { margin: 16px 0 0; color: #baafbf; font-size: 12px; }
+    .links { display: grid; gap: 10px; margin: 30px 0 0; }
+    .links a { padding: 13px 16px; border: 1px solid #694c74; border-radius: 13px; background: #2a2030; color: #f1d5f8; font-weight: 700; text-decoration: none; }
+    footer { margin-top: 25px; color: #a99bae; font-size: 12px; }
+    @media (max-width: 360px) { main { padding-inline: 12px; } section { padding-inline: 12px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="brand" href="/" aria-label="Soleil home"><span class="brand-mark" aria-hidden="true">◈</span>soleil</a>
+    <p class="eyebrow">Judge explanation · Solana Devnet</p>
+    <h1>Soleil in four flows</h1>
+    <p class="intro">Start with the person holding SOL. Then show how a goal becomes an on-chain option position. These diagrams fit a phone screen.</p>
+    <nav aria-label="Flow sections">
+      <a href="#user">1 · User</a><a href="#trade">2 · Trade</a><a href="#payout">3 · Payout</a><a href="#difference">4 · Difference</a>
+    </nav>
+
+    <section id="user" aria-labelledby="user-title">
+      <h2 id="user-title">1. From worry to protection</h2>
+      <p class="subtitle">The user journey, without options jargon.</p>
+      <div class="step"><strong>Person already holds SOL</strong><span>They want upside, but worry about a price drop.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step feature"><strong>Guard asks for a value floor</strong><span>“What minimum USD value do you want to protect?”</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step"><strong>Soleil suggests a put plan</strong><span>Wallet SOL balance helps determine size and strike.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step"><strong>User reviews premium</strong><span>The put costs money. The payoff chart is a preview.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step chain"><strong>Wallet signs; Portfolio tracks</strong><span>A confirmed position is read from Solana.</span></div>
+      <p class="say"><b>Say:</b> “We start with the holder's goal, then translate it into an option. We do not make them start with Greeks.”</p>
+    </section>
+
+    <section id="trade" aria-labelledby="trade-title">
+      <h2 id="trade-title">2. What happens in Web3</h2>
+      <p class="subtitle">The website displays. The wallet approves. The program checks.</p>
+      <div class="step"><span class="tag model">Pricing model</span><strong>Maker calculates bid and ask</strong><span>Prices use SOL spot, strike, expiry, assumed volatility, and a rule-based spread.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step chain"><span class="tag real">On-chain</span><strong>Maker funds a market and publishes quotes</strong><span>Quote accounts contain side, price, expiry, and remaining size.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step feature"><strong>Is a usable quote available?</strong><span>No quote means planning only. An estimate cannot become a fake fill.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step"><strong>User signs the exact transaction</strong><span>Wallet approval is required before an order is submitted.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step chain"><strong>Soleil program validates and records</strong><span>Checks market, side, size, and expiry; then creates a position account.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step chain"><strong>Portfolio and Explorer show proof</strong><span>Confirmed state comes from Solana, not a local mock order.</span></div>
+      <p class="say"><b>Say:</b> “The quote account is real. Its price is currently generated by our model, not discovered in a competitive order book.”</p>
+    </section>
+
+    <section id="payout" aria-labelledby="payout-title">
+      <h2 id="payout-title">3. Where Devnet SOL goes</h2>
+      <p class="subtitle">Example: user buys a put. This is test currency, not real money.</p>
+      <div class="step chain"><strong>Maker funds the market</strong><span>Each strike, expiry, and call/put market has its own SOL liquidity.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step"><strong>Buyer pays the premium</strong><span>Quantity “1 SOL” means one SOL of option notional; premium is smaller and shown separately.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step chain"><strong>Program reserves possible payout</strong><span>It consumes quote size and creates the user's position.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step"><strong>At expiry, authorized signer provides SOL price</strong><span>Program calculates put value: strike minus expiry price, if positive.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="split">
+        <div class="step chain"><strong>Below strike</strong><span>Put has intrinsic value; program pays SOL if due.</span></div>
+        <div class="step"><strong>At or above strike</strong><span>No intrinsic payout; buyer spent the premium.</span></div>
+      </div>
+      <p class="say"><b>Say:</b> “A $110 put with SOL at $90 has $20 intrinsic value per SOL of notional, before the premium and fees.”</p>
+      <p class="note">The authorized expiry-price signer is a prototype trust dependency. The chart does not guarantee a treasury floor.</p>
+    </section>
+
+    <section id="difference" aria-labelledby="difference-title">
+      <h2 id="difference-title">4. Our work vs market conventions</h2>
+      <p class="subtitle">The distinction judges are likely to ask about.</p>
+      <div class="step"><span class="tag">Established idea</span><strong>Options mechanics</strong><span>Calls, puts, strikes, expiries, premiums, bid/ask, and protective puts already exist.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step feature"><span class="tag">Soleil product choice</span><strong>Start from wallet exposure and desired floor</strong><span>Guard turns an existing SOL holding into an understandable put plan. We focus the first market on SOL.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step chain"><span class="tag real">Built on Devnet</span><strong>Funded quotes and settlement program</strong><span>Wallet-signed positions and program checks have on-chain accounts.</span></div>
+      <div class="connector" aria-hidden="true"></div>
+      <div class="step"><span class="tag model">Prototype only</span><strong>Market-like display and pricing</strong><span>Option premiums, IV, Greeks, and strategy previews are modeled. No competitive order book or organic volume is claimed.</span></div>
+      <p class="say"><b>Say:</b> “We built a simpler path to a verifiable hedge. We did not invent options or create market-discovered prices.”</p>
+    </section>
+
+    <div class="links">
+      <a href="/#market">Open Soleil Market</a>
+      <a href="https://explorer.solana.com/address/3xZZq7Wd23M1eyggca8KCbhNx6FcNpsKTHGJq751n66k?cluster=devnet" target="_blank" rel="noreferrer">View deployed program on Solana Explorer</a>
+    </div>
+    <footer>Devnet reference prototype. Seven-day quotes had up to 1 SOL capacity per contract at last check; 10- and 14-day quotes had 0.1 SOL. Capacity is not trading volume.</footer>
+  </main>
+</body>
+</html>
