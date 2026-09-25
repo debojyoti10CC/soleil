@@ -477,6 +477,32 @@ export async function makeQuotes(expiryDays, fallbackSpot) {
     }
   }
   if (rows.length === 0) throw new Error('No active funded maker quotes found for this expiry.')
+  // A live quote can outlive the market capacity it was published against.
+  // Report the smaller on-chain capacity so the client never offers an order
+  // which open_position will reject as InvalidPda (custom error 0).
+  const marketAddresses = rows.flatMap((row) => [
+    new PublicKey(row.call.askQuote.market),
+    new PublicKey(row.put.askQuote.market),
+  ])
+  const marketAccounts = await connection.getMultipleAccountsInfo(marketAddresses, 'confirmed')
+  rows.forEach((row, index) => {
+    for (const [kind, account] of [['call', marketAccounts[index * 2]], ['put', marketAccounts[index * 2 + 1]]]) {
+      const book = row[kind]
+      const data = account && new Uint8Array(account.data)
+      if (!data || data.length < 106 || !account.owner.equals(program)) {
+        book.bidQuote.remainingSize = 0
+        book.askQuote.remainingSize = 0
+        continue
+      }
+      const liquidity = readU64(data, 82)
+      const availableUnits = Math.max(0, liquidity - readU64(data, 90))
+      const availablePayout = Math.max(0, liquidity - readU64(data, 98))
+      for (const terms of [book.bidQuote, book.askQuote]) {
+        const payoutSize = Math.floor(availablePayout * SOLANA_DECIMALS / terms.collateralLamportsPerSol)
+        terms.remainingSize = Math.min(terms.remainingSize, availableUnits / SOLANA_DECIMALS, payoutSize / SOLANA_DECIMALS)
+      }
+    }
+  })
   return rows
 }
 
@@ -532,6 +558,14 @@ export async function handleGatewayRequest(request, response) {
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`)
     if (url.pathname === '/health') return json(response, 200, { ok: true, configured: Boolean(PROGRAM_ID && MAKER_KEYPAIR && LIQUIDITY_LAMPORTS > 0 && QUOTE_SIZE_LAMPORTS > 0 && COLLATERAL_LAMPORTS_PER_SOL > 0) })
+    if (url.pathname === '/transaction') {
+      const signature = url.searchParams.get('signature') || ''
+      if (!/^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(signature)) return json(response, 400, { error: 'Valid transaction signature is required.' })
+      const status = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0]
+      if (!status) return json(response, 200, { status: 'pending' })
+      if (status.err) return json(response, 200, { status: 'failed', error: status.err })
+      return json(response, 200, { status: status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized' ? 'confirmed' : 'pending' })
+    }
     if (url.pathname === '/positions') {
       const owner = url.searchParams.get('owner')
       if (!owner) return json(response, 400, { error: 'owner is required.' })

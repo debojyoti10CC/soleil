@@ -9,7 +9,7 @@ import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronDown, CircleHel
 import { buildOptionSeries, buildStrategyLegs, calculateGreeks, payoffAtExpiry, strategyPayoffAtExpiry, type OptionKind, type OptionQuote, type OptionSeries, type Position, type QuoteTerms, type StrategyKind, type StrategyLeg, type TradeSide, type View } from './domain'
 import { fetchMakerQuotes, quoteGatewayConfigured, settleThroughGateway } from './quotes'
 
-import { fetchOnchainPositions, fetchSolMarket, getExplorerAddressUrl, getExplorerTransactionUrl, getSolBalance, requestDevnetSol, shortAddress, submitSolanaTransaction, type OnchainPosition, type WalletSession } from './solana'
+import { fetchOnchainPositions, fetchSolMarket, getExplorerAddressUrl, getExplorerTransactionUrl, getSolBalance, requestDevnetSol, shortAddress, submitSolanaTransaction, SubmittedTransactionPending, type OnchainPosition, type WalletSession } from './solana'
 import { buildClosePositionInstruction, buildOpenPositionInstruction, buildProtectionInstruction, deriveMarketPda, derivePositionPda, getSettlementProgramId, quoteTotalLamports } from './settlement'
 
 
@@ -155,6 +155,7 @@ function App() {
   const [walletBusy, setWalletBusy] = useState(false)
   const [tradeStage, setTradeStage] = useState<'preparing' | 'wallet' | 'confirming'>('preparing')
   const [tradeError, setTradeError] = useState('')
+  const [pendingTrade, setPendingTrade] = useState<{ signature: string; positionAddress: string } | null>(null)
 
   // Portfolio state is authoritative on Solana. Do not hydrate positions from
 
@@ -408,6 +409,12 @@ function App() {
 
   const selectedQuote = selectedSeries?.[selectedKind]
 
+  const selectedProgramId = getSettlementProgramId()
+  const selectedExpiryAt = selectedSeries?.expiryAt ?? (selectedSeries ? expiryUnix(selectedSeries.expiryDays) : 0)
+  const selectedPositionAddress = walletAddress && selectedSeries && selectedProgramId
+    ? derivePositionPda(selectedProgramId, new PublicKey(walletAddress), deriveMarketPda(selectedProgramId, selectedSeries.strike, selectedExpiryAt, selectedKind), selectedExpiryAt).toBase58()
+    : ''
+
   const visibleSeries = useMemo(() => series.filter((item) => !search || String(item.strike).includes(search)), [search, series])
 
   const tradeValue = (tradeSide === 'buy' ? selectedQuote?.ask ?? 0 : selectedQuote?.bid ?? 0) * quantity
@@ -508,6 +515,35 @@ function App() {
     void syncOnchainPositions(walletAddress)
   }, [view, walletConnected, walletAddress])
 
+  useEffect(() => {
+    if (!pendingTrade || !walletAddress) return
+    let active = true
+    const check = async () => {
+      try {
+        const response = await fetch(`/api/transaction?signature=${pendingTrade.signature}`, { signal: AbortSignal.timeout(8_000) })
+        if (!response.ok || !active) return
+        const result = await response.json() as { status?: string; error?: unknown }
+        if (!active) return
+        if (result.status === 'confirmed') {
+          setPendingTrade(null)
+          setTradeError('')
+          setTradePanelOpen(false)
+          navigate('portfolio')
+          void syncOnchainPositions(walletAddress)
+          notify('Devnet position confirmed')
+        } else if (result.status === 'failed') {
+          setPendingTrade(null)
+          setTradeError(`Transaction failed on Solana: ${JSON.stringify(result.error)}`)
+        }
+      } catch {
+        // Keep the signature visible while Devnet is unavailable.
+      }
+    }
+    void check()
+    const interval = window.setInterval(check, 5_000)
+    return () => { active = false; window.clearInterval(interval) }
+  }, [pendingTrade, walletAddress])
+
 
 
   const disconnectWallet = async () => {
@@ -594,6 +630,9 @@ function App() {
       const expiryAt = selectedSeries.expiryAt ?? expiryUnix(selectedSeries.expiryDays)
 
       const market = deriveMarketPda(programId, selectedStrike, expiryAt, selectedKind)
+      const positionAddress = derivePositionPda(programId, owner, market, expiryAt).toBase58()
+      if (positions.some((position) => position.positionAddress === positionAddress)) throw new Error('You already have this contract. Choose another strike or expiry; this Devnet program permits one position per wallet and contract.')
+      if (pendingTrade?.positionAddress === positionAddress) throw new Error('This order has already been submitted. Check the transaction before trying again.')
 
       const instructions: TransactionInstruction[] = []
 
@@ -637,7 +676,7 @@ function App() {
 
         receipt: signature,
 
-        positionAddress: derivePositionPda(programId, owner, market, expiryAt).toBase58(),
+        positionAddress,
 
         marketAddress: market.toBase58(),
 
@@ -657,6 +696,13 @@ function App() {
       void getSolBalance(owner.toBase58()).then((balance) => { if (walletRef.current === owner.toBase58()) setWalletBalance(balance) }).catch(() => undefined)
 
     } catch (error) {
+
+      if (error instanceof SubmittedTransactionPending && selectedPositionAddress) {
+        setPendingTrade({ signature: error.signature, positionAddress: selectedPositionAddress })
+        setTradeError('Submitted to Devnet. Confirmation is still pending. Do not submit this contract again yet.')
+        if (walletAddress) void syncOnchainPositions(walletAddress)
+        return
+      }
 
       const message = error instanceof Error ? error.message : 'Order was not submitted'
       setTradeError(message)
@@ -807,7 +853,7 @@ function App() {
 
 
 
-      {tradePanelOpen && selectedSeries && selectedQuote && <TradePanel appMode={appMode} quoteMode={quoteMode} walletBusy={walletBusy} tradeStage={tradeStage} tradeError={tradeError} kind={selectedKind} series={selectedSeries} side={tradeSide} setSide={setTradeSide} quantity={quantity} quantityText={quantityText} setQuantityText={setQuantityText} tradeValue={tradeValue} walletConnected={walletConnected} executionEnabled={executionEnabled} onClose={() => setTradePanelOpen(false)} onSubmit={placeTrade} />}
+      {tradePanelOpen && selectedSeries && selectedQuote && <TradePanel appMode={appMode} quoteMode={quoteMode} walletBusy={walletBusy} tradeStage={tradeStage} tradeError={tradeError} pendingSignature={pendingTrade?.positionAddress === selectedPositionAddress ? pendingTrade.signature : undefined} kind={selectedKind} series={selectedSeries} side={tradeSide} setSide={setTradeSide} quantity={quantity} quantityText={quantityText} setQuantityText={setQuantityText} tradeValue={tradeValue} walletConnected={walletConnected} executionEnabled={executionEnabled} onClose={() => setTradePanelOpen(false)} onSubmit={placeTrade} />}
 
       {mobileWalletOpen && <MobileWalletSheet isMobile={window.matchMedia('(max-width: 760px)').matches} hasDetectedWallet={wallets.some(({ readyState }) => readyState === WalletReadyState.Installed)} onClose={() => setMobileWalletOpen(false)} onUseDetected={async () => { setMobileWalletOpen(false); const detected = wallets.find(({ readyState }) => readyState === WalletReadyState.Installed); if (!detected) return; if (wallet?.adapter.name === detected.adapter.name) await connectWalletDirect(); else select(detected.adapter.name) }} onChooseWallet={() => { setMobileWalletOpen(false); setWalletModalVisible(true) }} />}
 
@@ -967,7 +1013,7 @@ function MarketTicket({ appMode, quoteMode, series, kind, side, setSide, spot, q
 
 
 
-function TradePanel({ appMode, quoteMode, walletBusy, tradeStage, tradeError, kind, series, side, setSide, quantity, quantityText, setQuantityText, tradeValue, walletConnected, executionEnabled, onClose, onSubmit }: { appMode: AppMode; quoteMode: 'maker' | 'indicative' | 'offline'; walletBusy: boolean; tradeStage: 'preparing' | 'wallet' | 'confirming'; tradeError: string; kind: OptionKind; series: OptionSeries; side: TradeSide; setSide: (side: TradeSide) => void; quantity: number; quantityText: string; setQuantityText: (value: string) => void; tradeValue: number; walletConnected: boolean; executionEnabled: boolean; onClose: () => void; onSubmit: () => void }) {
+function TradePanel({ appMode, quoteMode, walletBusy, tradeStage, tradeError, pendingSignature, kind, series, side, setSide, quantity, quantityText, setQuantityText, tradeValue, walletConnected, executionEnabled, onClose, onSubmit }: { appMode: AppMode; quoteMode: 'maker' | 'indicative' | 'offline'; walletBusy: boolean; tradeStage: 'preparing' | 'wallet' | 'confirming'; tradeError: string; pendingSignature?: string; kind: OptionKind; series: OptionSeries; side: TradeSide; setSide: (side: TradeSide) => void; quantity: number; quantityText: string; setQuantityText: (value: string) => void; tradeValue: number; walletConnected: boolean; executionEnabled: boolean; onClose: () => void; onSubmit: () => void }) {
 
   const quote = series[kind]
   const sizeMessage = quoteMode === 'maker' ? quoteSizeMessage(quote, side, quantity) : null
@@ -984,7 +1030,7 @@ function TradePanel({ appMode, quoteMode, walletBusy, tradeStage, tradeError, ki
   const actionLabel = walletBusy ? tradeStage === 'preparing' ? 'Checking Devnet and quote…' : tradeStage === 'wallet' ? 'Approve in your wallet…' : 'Confirming on Devnet…' : executionEnabled ? (walletConnected ? `Sign ${side} position` : 'Connect wallet to trade') : unavailableLabel
   const drawerNote = walletBusy ? tradeStage === 'wallet' ? 'Open your wallet extension and approve or reject the transaction.' : tradeStage === 'confirming' ? 'Wallet submitted the transaction. Waiting for Solana confirmation.' : 'Checking market and quote accounts before your wallet opens.' : executionEnabled ? 'Your signed order uses a validated maker quote and the deployed Soleil program.' : appMode === 'planning' ? 'Planning mode uses indicative prices only. Switch to Devnet to submit.' : quoteMode === 'offline' ? 'Devnet mode is waiting for the maker service to publish on-chain quotes.' : sizeMessage ? 'Reduce the quantity or wait for a larger maker quote.' : 'Devnet mode is waiting for a live maker quote.'
 
-  return <div className="drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="trade-drawer"><div className="drawer-head"><div><p className="eyebrow">TRADE CONTRACT</p><h2>SOL {kind === 'put' ? 'Put' : 'Call'}</h2><p>Strike {money(series.strike, 0)} · {series.expiryLabel} · {series.expiryDays} days</p></div><button className="icon-button" onClick={onClose} aria-label="Close trade ticket"><X size={18} /></button></div><div className="trade-tabs" role="tablist" aria-label="Trade side"><button className={side === 'buy' ? 'active' : ''} onClick={() => setSide('buy')}>Buy</button><button className={side === 'sell' ? 'active' : ''} onClick={() => setSide('sell')}>Sell</button></div><label className="form-field"><span>Quantity <small>SOL</small></span><div className="input-shell"><input value={quantityText} type="number" min={minimumTradeSizeSol} step="any" inputMode="decimal" onChange={(event) => setQuantityText(event.target.value)} /><span>SOL</span></div></label><label className="form-field"><span>Limit price <small>per SOL</small></span><div className="input-shell"><input value={executionPrice.toFixed(2)} readOnly /><span>USD</span></div></label><div className="drawer-summary"><div><span>{side === 'buy' ? 'Best ask' : 'Best bid'}</span><strong>{money(executionPrice)}</strong></div><div><span>{side === 'buy' ? 'Estimated cost' : 'Estimated proceeds'}</span><strong>{money(tradeValue)}</strong></div><div><span>On-chain premium</span><strong>{premium > 0 ? solAmount(premium) : '—'}</strong></div>{side === 'sell' && <div><span>Collateral locked</span><strong>{collateral > 0 ? solAmount(collateral) : '—'}</strong></div>}<div><span>Settlement</span><span className="verified"><Check size={13} /> Solana program</span></div></div><button className="primary-action" onClick={onSubmit} disabled={!executionEnabled || walletBusy}>{actionLabel} <ArrowRight size={15} /></button><p className="drawer-note">{drawerNote}</p>{tradeError && <p className="trade-error" role="alert">{tradeError}</p>}</aside></div>
+  return <div className="drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="trade-drawer"><div className="drawer-head"><div><p className="eyebrow">TRADE CONTRACT</p><h2>SOL {kind === 'put' ? 'Put' : 'Call'}</h2><p>Strike {money(series.strike, 0)} · {series.expiryLabel} · {series.expiryDays} days</p></div><button className="icon-button" onClick={onClose} aria-label="Close trade ticket"><X size={18} /></button></div><div className="trade-tabs" role="tablist" aria-label="Trade side"><button className={side === 'buy' ? 'active' : ''} onClick={() => setSide('buy')}>Buy</button><button className={side === 'sell' ? 'active' : ''} onClick={() => setSide('sell')}>Sell</button></div><label className="form-field"><span>Quantity <small>SOL</small></span><div className="input-shell"><input value={quantityText} type="number" min={minimumTradeSizeSol} step="any" inputMode="decimal" onChange={(event) => setQuantityText(event.target.value)} /><span>SOL</span></div></label><label className="form-field"><span>Limit price <small>per SOL</small></span><div className="input-shell"><input value={executionPrice.toFixed(2)} readOnly /><span>USD</span></div></label><div className="drawer-summary"><div><span>{side === 'buy' ? 'Best ask' : 'Best bid'}</span><strong>{money(executionPrice)}</strong></div><div><span>{side === 'buy' ? 'Estimated cost' : 'Estimated proceeds'}</span><strong>{money(tradeValue)}</strong></div><div><span>On-chain premium</span><strong>{premium > 0 ? solAmount(premium) : '—'}</strong></div>{side === 'sell' && <div><span>Collateral locked</span><strong>{collateral > 0 ? solAmount(collateral) : '—'}</strong></div>}<div><span>Settlement</span><span className="verified"><Check size={13} /> Solana program</span></div></div><button className="primary-action" onClick={onSubmit} disabled={!executionEnabled || walletBusy || Boolean(pendingSignature)}>{pendingSignature ? "Awaiting Devnet confirmation" : actionLabel} <ArrowRight size={15} /></button><p className="drawer-note">{drawerNote}</p>{tradeError && <p className="trade-error" role="alert">{tradeError}</p>}{pendingSignature && <a className="receipt-link" href={getExplorerTransactionUrl(pendingSignature)} target="_blank" rel="noreferrer">View transaction on Explorer <ExternalLink size={12} /></a>}</aside></div>
 
 }
 

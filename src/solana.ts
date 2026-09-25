@@ -252,6 +252,18 @@ export async function submitSolanaTransaction(instructions: TransactionInstructi
   const confirmationConnections = [prepared.connection, prepared.connection === solanaConnection ? fallbackConnection : solanaConnection].filter((item): item is Connection => item !== null)
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
+    try {
+      // The maker backend can still see a confirmed transaction when browser RPCs
+      // are rate limited. This is also available locally through Vite's /api proxy.
+      const response = await fetch(`/api/transaction?signature=${resolvedSignature}`, { signal: AbortSignal.timeout(8_000) })
+      if (response.ok) {
+        const result = await response.json() as { status?: string; error?: unknown }
+        if (result.status === 'failed') throw new Error(`Transaction failed on Solana: ${JSON.stringify(result.error)}`)
+        if (result.status === 'confirmed') return resolvedSignature
+      }
+    } catch (error) {
+      if (String(error).includes('Transaction failed on Solana')) throw error
+    }
     for (const connection of confirmationConnections) {
       try {
         const status = (await rpcTimeout(connection.getSignatureStatuses([resolvedSignature], { searchTransactionHistory: true }))).value[0]
@@ -263,7 +275,13 @@ export async function submitSolanaTransaction(instructions: TransactionInstructi
     }
     await new Promise((resolve) => setTimeout(resolve, 1_500))
   }
-  throw new Error(`Transaction submitted as ${resolvedSignature}, but Devnet confirmation is pending. Check Explorer before retrying.`)
+  throw new SubmittedTransactionPending(resolvedSignature)
+}
+
+export class SubmittedTransactionPending extends Error {
+  constructor(readonly signature: string) {
+    super(`Transaction submitted as ${signature}, but Devnet confirmation is pending. Check Explorer before retrying.`)
+  }
 }
 
 export const getExplorerTransactionUrl = (signature: string) => `https://explorer.solana.com/tx/${signature}?cluster=devnet`
