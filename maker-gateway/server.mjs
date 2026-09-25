@@ -38,8 +38,10 @@ const PROGRAM_ID = process.env.SOLEIL_PROGRAM_ID
 const MAKER_KEYPAIR = process.env.SOLEIL_MAKER_KEYPAIR
 const LIQUIDITY_LAMPORTS = Number(process.env.SOLEIL_MARKET_LIQUIDITY_LAMPORTS || 0)
 const QUOTE_SIZE_LAMPORTS = Number(process.env.SOLEIL_QUOTE_SIZE_LAMPORTS || 0)
+const SEVEN_DAY_QUOTE_SIZE_LAMPORTS = Number(process.env.SOLEIL_SEVEN_DAY_QUOTE_SIZE_LAMPORTS || 1_000_000_000)
 const COLLATERAL_LAMPORTS_PER_SOL = Number(process.env.SOLEIL_COLLATERAL_LAMPORTS_PER_SOL || 0)
-const QUOTE_TTL_SECONDS = Number(process.env.SOLEIL_QUOTE_TTL_SECONDS || 300)
+// Devnet quotes need enough lifetime to avoid exhausting rent on frequent refreshes.
+const QUOTE_TTL_SECONDS = Math.max(Number(process.env.SOLEIL_QUOTE_TTL_SECONDS || 300), 3_600)
 const SOLANA_DECIMALS = 1_000_000_000
 const encoder = new TextEncoder()
 const SPOT_CACHE_MS = 5_000
@@ -78,7 +80,7 @@ function readI64(data, offset) {
 }
 
 function requireConfig() {
-  if (![LIQUIDITY_LAMPORTS, QUOTE_SIZE_LAMPORTS, COLLATERAL_LAMPORTS_PER_SOL, QUOTE_TTL_SECONDS].every((n) => Number.isSafeInteger(n) && n > 0)) throw new Error('Maker amounts and quote lifetime must be positive safe integers.')
+  if (![LIQUIDITY_LAMPORTS, QUOTE_SIZE_LAMPORTS, SEVEN_DAY_QUOTE_SIZE_LAMPORTS, COLLATERAL_LAMPORTS_PER_SOL, QUOTE_TTL_SECONDS].every((n) => Number.isSafeInteger(n) && n > 0)) throw new Error('Maker amounts and quote lifetime must be positive safe integers.')
   if (!PROGRAM_ID || !MAKER_KEYPAIR || LIQUIDITY_LAMPORTS <= 0 || QUOTE_SIZE_LAMPORTS <= 0) {
     throw new Error('Set SOLEIL_PROGRAM_ID, SOLEIL_MAKER_KEYPAIR, SOLEIL_MARKET_LIQUIDITY_LAMPORTS, and SOLEIL_QUOTE_SIZE_LAMPORTS.')
   }
@@ -93,6 +95,10 @@ function loadMaker() {
     ? JSON.parse(configured)
     : JSON.parse(readFileSync(resolve(configured), 'utf8'))
   return Keypair.fromSecretKey(Uint8Array.from(secret))
+}
+
+function quoteSizeForExpiry(expiryDays) {
+  return expiryDays === 7 ? SEVEN_DAY_QUOTE_SIZE_LAMPORTS : QUOTE_SIZE_LAMPORTS
 }
 
 function programId() {
@@ -304,11 +310,11 @@ async function settlePosition(maker, program, marketAddress, positionAddress) {
   return { signature, oraclePrice: spot, observedAt }
 }
 
-async function ensureMarket(program, maker, strike, expiryAt, kind) {
+async function ensureMarket(program, maker, strike, expiryAt, kind, quoteSizeLamports) {
   const market = deriveMarket(program, strike, expiryAt, kind)
   let account = await connection.getAccountInfo(market, 'confirmed')
   if (!account) {
-    await send(maker, [initializeMarket(program, maker, market, strike, expiryAt, kind), depositLiquidity(program, maker, market, LIQUIDITY_LAMPORTS)])
+    await send(maker, [initializeMarket(program, maker, market, strike, expiryAt, kind), depositLiquidity(program, maker, market, Math.max(LIQUIDITY_LAMPORTS, quoteSizeLamports))])
     account = await connection.getAccountInfo(market, 'confirmed')
   }
   if (!account) throw new Error(`Market ${market.toBase58()} was not created.`)
@@ -318,16 +324,17 @@ async function ensureMarket(program, maker, strike, expiryAt, kind) {
   }
   if (!account.owner.equals(program)) throw new Error('Market account belongs to another program.')
   const availableLamports = readU64(data, 82) - readU64(data, 98)
-  if (availableLamports < QUOTE_SIZE_LAMPORTS) {
-    await send(maker, [depositLiquidity(program, maker, market, QUOTE_SIZE_LAMPORTS - availableLamports)])
+  if (availableLamports < quoteSizeLamports) {
+    await send(maker, [depositLiquidity(program, maker, market, quoteSizeLamports - availableLamports)])
     account = await connection.getAccountInfo(market, 'confirmed')
-    if (!account || readU64(new Uint8Array(account.data), 82) - readU64(new Uint8Array(account.data), 98) < QUOTE_SIZE_LAMPORTS) throw new Error(`Market ${market.toBase58()} could not be funded for quote size.`)
+    if (!account || readU64(new Uint8Array(account.data), 82) - readU64(new Uint8Array(account.data), 98) < quoteSizeLamports) throw new Error(`Market ${market.toBase58()} could not be funded for quote size.`)
   }
   return market
 }
 
 export async function estimateSeriesFunding(expiryDays, fallbackSpot = 0) {
   requireConfig()
+  const quoteSizeLamports = quoteSizeForExpiry(expiryDays)
   const maker = loadMaker()
   const program = programId()
   const spot = await liveSpot(fallbackSpot)
@@ -342,14 +349,14 @@ export async function estimateSeriesFunding(expiryDays, fallbackSpot = 0) {
   let marketFundingLamports = 0
   for (const account of accounts) {
     if (!account) {
-      marketFundingLamports += LIQUIDITY_LAMPORTS + marketRent
+      marketFundingLamports += Math.max(LIQUIDITY_LAMPORTS, quoteSizeLamports) + marketRent
       continue
     }
     if (!account.owner.equals(program) || account.data.length < 106 || !new PublicKey(account.data.subarray(0, 32)).equals(maker.publicKey)) {
       throw new Error('A selected market has an unexpected program owner or maker authority.')
     }
     const available = readU64(new Uint8Array(account.data), 82) - readU64(new Uint8Array(account.data), 98)
-    marketFundingLamports += Math.max(0, QUOTE_SIZE_LAMPORTS - available)
+    marketFundingLamports += Math.max(0, quoteSizeLamports - available)
   }
   // Refresh can publish a bid and ask for both calls and puts at every strike.
   const requiredLamports = marketFundingLamports + quoteRent * strikes.length * 4 + 1_000_000
@@ -411,6 +418,7 @@ function buildSeries(spot, expiryDays) {
 
 export async function makeQuotes(expiryDays, fallbackSpot) {
   requireConfig()
+  const quoteSizeLamports = quoteSizeForExpiry(expiryDays)
   const maker = loadMaker()
   const program = programId()
   const spot = await liveSpot(fallbackSpot)
@@ -439,7 +447,7 @@ export async function makeQuotes(expiryDays, fallbackSpot) {
       put: { bid: putBidQuote.priceCents / 100, ask: putAskQuote.priceCents / 100, iv: Math.round(baseIv + 1), bidQuote: putBidQuote, askQuote: putAskQuote },
     })
   }
-  const fullSize = QUOTE_SIZE_LAMPORTS / SOLANA_DECIMALS
+  const fullSize = quoteSizeLamports / SOLANA_DECIMALS
   const needsRefresh = rows.length < strikes.length || rows.some((row) => [row.call.bidQuote, row.call.askQuote, row.put.bidQuote, row.put.askQuote].some((quote) => quote.remainingSize + 1e-9 < fullSize))
   if (needsRefresh) {
     // Replenish incomplete or undersized quotes only after checking all market funding.
@@ -454,10 +462,10 @@ export async function makeQuotes(expiryDays, fallbackSpot) {
       const timeValue = spot * (baseIv / 100) * Math.sqrt(expiry) * 0.16
       const callMid = Math.max(0.01, Math.max(spot - strike, 0) + timeValue)
       const putMid = Math.max(0.01, Math.max(strike - spot, 0) + timeValue)
-      const callMarket = await ensureMarket(program, maker, strike, expiryAt, 0)
-      const putMarket = await ensureMarket(program, maker, strike, expiryAt, 1)
-      const call = quoteRow(callMid, baseIv, spot, QUOTE_SIZE_LAMPORTS, callMarket, program, maker, expiryAt, 0, strike)
-      const put = quoteRow(putMid, baseIv + 1, spot, QUOTE_SIZE_LAMPORTS, putMarket, program, maker, expiryAt, 1, strike)
+      const callMarket = await ensureMarket(program, maker, strike, expiryAt, 0, quoteSizeLamports)
+      const putMarket = await ensureMarket(program, maker, strike, expiryAt, 1, quoteSizeLamports)
+      const call = quoteRow(callMid, baseIv, spot, quoteSizeLamports, callMarket, program, maker, expiryAt, 0, strike)
+      const put = quoteRow(putMid, baseIv + 1, spot, quoteSizeLamports, putMarket, program, maker, expiryAt, 1, strike)
       rows.push({
         expiryDays,
         expiryAt,

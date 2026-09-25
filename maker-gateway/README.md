@@ -17,7 +17,7 @@ $env:VITE_SOLEIL_QUOTES_URL = "http://127.0.0.1:8787/quotes"
 
 The maker keypair must control the initialized market authority and have enough SOL for account rent, market funding, quote rent, and transaction fees.
 
-### Seed 1 SOL quotes across every expiry
+### Seed 1 SOL quotes
 
 The 7-, 10-, and 14-day chain has ten separate markets per expiry: five strikes, each with a call and a put. Every market needs its own available liquidity. To check the full 1 SOL grid without sending transactions, run:
 
@@ -27,7 +27,9 @@ npm run maker:seed:check
 
 The command prints the free SOL needed to top up markets and publish all bid/ask accounts. Fund the maker wallet until its balance exceeds that total, then run `npm run maker:seed` locally. This prepares all three expiries outside the Vercel request timeout and verifies every returned bid and ask has at least 1 SOL of remaining size. The script uses the maker key from local `.env` and never prints it.
 
-After seeding, set both `SOLEIL_MARKET_LIQUIDITY_LAMPORTS` and `SOLEIL_QUOTE_SIZE_LAMPORTS` to `1000000000` in the Vercel **server** environment and redeploy. Keep the keypair server-only. Until that update, the hosted gateway may replace expired 1 SOL quotes with its old 0.1 SOL setting.
+With limited Devnet SOL, run `npm run maker:seed:check -- --expiry=7` and `npm run maker:seed -- --expiry=7` to fund the ten 7-day markets first. The hosted gateway defaults to 1 SOL for 7-day quotes through `SOLEIL_SEVEN_DAY_QUOTE_SIZE_LAMPORTS`; its 10- and 14-day quotes retain `SOLEIL_QUOTE_SIZE_LAMPORTS` (currently 0.1 SOL). This keeps the funded 7-day size when quotes expire. The other expiries require separate market funding before they can offer 1 SOL.
+
+Devnet quote accounts need rent at every refresh. The gateway uses a minimum one-hour quote lifetime so the remaining maker balance can keep all three expiry ladders available during the demo. A quoted price can therefore be up to one hour old even while its on-chain quote remains executable. Confirm displayed premium before signing.
 
 ## Run
 

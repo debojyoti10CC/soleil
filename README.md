@@ -438,8 +438,9 @@ SOLEIL_PROGRAM_ID=<deployed-program-id>
 SOLEIL_MAKER_KEYPAIR=<JSON secret array or server-side keypair path>
 SOLEIL_MARKET_LIQUIDITY_LAMPORTS=100000000
 SOLEIL_QUOTE_SIZE_LAMPORTS=100000000
+SOLEIL_SEVEN_DAY_QUOTE_SIZE_LAMPORTS=1000000000
 SOLEIL_COLLATERAL_LAMPORTS_PER_SOL=1000000000
-SOLEIL_QUOTE_TTL_SECONDS=600
+SOLEIL_QUOTE_TTL_SECONDS=3600
 ```
 
 `SOLEIL_MAKER_KEYPAIR` is intentionally excluded from Git and from the client environment. Keep it in a Vercel server-side secret or a local operator environment only.
