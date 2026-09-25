@@ -223,7 +223,8 @@ async function loadActiveQuotes(program, maker, now) {
   for (const account of accounts) {
     const parsed = quoteFromAccount(account.pubkey, new Uint8Array(account.account.data), now)
     if (!parsed || parsed.maker !== maker.publicKey.toBase58()) continue
-    quotes.set(`${parsed.market}:${parsed.side}`, parsed)
+    const key = `${parsed.market}:${parsed.side}`
+    if (!quotes.has(key) || parsed.nonce > quotes.get(key).nonce) quotes.set(key, parsed)
   }
   activeQuoteSnapshot = { createdAt: Date.now(), quotes }
   return quotes
@@ -316,13 +317,43 @@ async function ensureMarket(program, maker, strike, expiryAt, kind) {
     throw new Error(`Market ${market.toBase58()} is controlled by another authority.`)
   }
   if (!account.owner.equals(program)) throw new Error('Market account belongs to another program.')
-  const liquidityLamports = readU64(data, 82)
-  if (liquidityLamports < QUOTE_SIZE_LAMPORTS) {
-    await send(maker, [depositLiquidity(program, maker, market, QUOTE_SIZE_LAMPORTS - liquidityLamports)])
+  const availableLamports = readU64(data, 82) - readU64(data, 98)
+  if (availableLamports < QUOTE_SIZE_LAMPORTS) {
+    await send(maker, [depositLiquidity(program, maker, market, QUOTE_SIZE_LAMPORTS - availableLamports)])
     account = await connection.getAccountInfo(market, 'confirmed')
-    if (!account || readU64(new Uint8Array(account.data), 82) < QUOTE_SIZE_LAMPORTS) throw new Error(`Market ${market.toBase58()} could not be funded for quote size.`)
+    if (!account || readU64(new Uint8Array(account.data), 82) - readU64(new Uint8Array(account.data), 98) < QUOTE_SIZE_LAMPORTS) throw new Error(`Market ${market.toBase58()} could not be funded for quote size.`)
   }
   return market
+}
+
+export async function estimateSeriesFunding(expiryDays, fallbackSpot = 0) {
+  requireConfig()
+  const maker = loadMaker()
+  const program = programId()
+  const spot = await liveSpot(fallbackSpot)
+  const { expiryAt, strikes } = buildSeries(spot, expiryDays)
+  const markets = strikes.flatMap((strike) => [deriveMarket(program, strike, expiryAt, 0), deriveMarket(program, strike, expiryAt, 1)])
+  const [accounts, marketRent, quoteRent, balanceLamports] = await Promise.all([
+    connection.getMultipleAccountsInfo(markets, 'confirmed'),
+    connection.getMinimumBalanceForRentExemption(106),
+    connection.getMinimumBalanceForRentExemption(122),
+    connection.getBalance(maker.publicKey, 'confirmed'),
+  ])
+  let marketFundingLamports = 0
+  for (const account of accounts) {
+    if (!account) {
+      marketFundingLamports += LIQUIDITY_LAMPORTS + marketRent
+      continue
+    }
+    if (!account.owner.equals(program) || account.data.length < 106 || !new PublicKey(account.data.subarray(0, 32)).equals(maker.publicKey)) {
+      throw new Error('A selected market has an unexpected program owner or maker authority.')
+    }
+    const available = readU64(new Uint8Array(account.data), 82) - readU64(new Uint8Array(account.data), 98)
+    marketFundingLamports += Math.max(0, QUOTE_SIZE_LAMPORTS - available)
+  }
+  // Refresh can publish a bid and ask for both calls and puts at every strike.
+  const requiredLamports = marketFundingLamports + quoteRent * strikes.length * 4 + 1_000_000
+  return { expiryDays, marketCount: markets.length, balanceLamports, marketFundingLamports, requiredLamports }
 }
 
 async function ensureQuote(program, maker, market, quote, terms) {
@@ -378,7 +409,7 @@ function buildSeries(spot, expiryDays) {
   return { expiryAt, strikes: [-10, -5, 0, 5, 10].map((offset) => Math.max(5, center + offset)), expiry }
 }
 
-async function makeQuotes(expiryDays, fallbackSpot) {
+export async function makeQuotes(expiryDays, fallbackSpot) {
   requireConfig()
   const maker = loadMaker()
   const program = programId()
@@ -408,13 +439,13 @@ async function makeQuotes(expiryDays, fallbackSpot) {
       put: { bid: putBidQuote.priceCents / 100, ask: putAskQuote.priceCents / 100, iv: Math.round(baseIv + 1), bidQuote: putBidQuote, askQuote: putAskQuote },
     })
   }
-  if (rows.length < strikes.length) {
-    // Replenish expired accounts only when no complete live snapshot remains. This keeps normal polling read-only.
-    const balanceLamports = await connection.getBalance(maker.publicKey, 'confirmed')
-    const quoteRentLamports = await connection.getMinimumBalanceForRentExemption(122)
-    const requiredLamports = quoteRentLamports * strikes.length * 2 + 500_000
-    if (balanceLamports < requiredLamports) {
-      throw new Error(`Maker wallet needs ${(requiredLamports / SOLANA_DECIMALS).toFixed(6)} SOL to replenish 10 quote accounts; current balance ${(balanceLamports / SOLANA_DECIMALS).toFixed(6)} SOL.`)
+  const fullSize = QUOTE_SIZE_LAMPORTS / SOLANA_DECIMALS
+  const needsRefresh = rows.length < strikes.length || rows.some((row) => [row.call.bidQuote, row.call.askQuote, row.put.bidQuote, row.put.askQuote].some((quote) => quote.remainingSize + 1e-9 < fullSize))
+  if (needsRefresh) {
+    // Replenish incomplete or undersized quotes only after checking all market funding.
+    const funding = await estimateSeriesFunding(expiryDays, spot)
+    if (funding.balanceLamports < funding.requiredLamports) {
+      throw new Error(`Maker needs ${(funding.requiredLamports / SOLANA_DECIMALS).toFixed(3)} SOL to fund and quote this expiry; wallet has ${(funding.balanceLamports / SOLANA_DECIMALS).toFixed(3)} SOL.`)
     }
     rows.length = 0
     for (const strike of strikes) {

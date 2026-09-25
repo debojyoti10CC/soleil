@@ -17,6 +17,18 @@ $env:VITE_SOLEIL_QUOTES_URL = "http://127.0.0.1:8787/quotes"
 
 The maker keypair must control the initialized market authority and have enough SOL for account rent, market funding, quote rent, and transaction fees.
 
+### Seed 1 SOL quotes across every expiry
+
+The 7-, 10-, and 14-day chain has ten separate markets per expiry: five strikes, each with a call and a put. Every market needs its own available liquidity. To check the full 1 SOL grid without sending transactions, run:
+
+```bash
+npm run maker:seed:check
+```
+
+The command prints the free SOL needed to top up markets and publish all bid/ask accounts. Fund the maker wallet until its balance exceeds that total, then run `npm run maker:seed` locally. This prepares all three expiries outside the Vercel request timeout and verifies every returned bid and ask has at least 1 SOL of remaining size. The script uses the maker key from local `.env` and never prints it.
+
+After seeding, set both `SOLEIL_MARKET_LIQUIDITY_LAMPORTS` and `SOLEIL_QUOTE_SIZE_LAMPORTS` to `1000000000` in the Vercel **server** environment and redeploy. Keep the keypair server-only. Until that update, the hosted gateway may replace expired 1 SOL quotes with its old 0.1 SOL setting.
+
 ## Run
 
 ```bash

@@ -8,6 +8,8 @@
     "dev": "vite",
     "maker:dev": "node maker-gateway/server.mjs",
     "maker:check": "node --check maker-gateway/server.mjs",
+    "maker:seed:check": "node scripts/seed-one-sol.mjs --check",
+    "maker:seed": "node scripts/seed-one-sol.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "check": "tsc -b --pretty false"
