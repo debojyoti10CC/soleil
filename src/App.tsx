@@ -486,7 +486,10 @@ function App() {
       setMobileWalletOpen(true)
       return null
     }
-    return connectWalletDirect()
+    // A wallet name can persist after its extension is locked or removed.
+    // Let the user choose an available wallet instead of silently retrying it.
+    setWalletModalVisible(true)
+    return null
   }
 
 
