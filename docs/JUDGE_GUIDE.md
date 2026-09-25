@@ -1,5 +1,7 @@
 # Soleil — Judge Guide
 
+For a short presentation script and first-principles diagrams, use [Judge Pitch](JUDGE_PITCH.md).
+
 ## The 20-second explanation
 
 Soleil is a Solana Devnet prototype for SOL options and treasury protection. A trader can inspect a compact SOL call/put chain; Guard turns an existing SOL balance and a chosen value floor into a put-protection plan; Portfolio reads confirmed positions from Solana. A maker gateway publishes bounded quotes, and the deployed program validates quote terms and records open, close, and expiry-settlement state on-chain.
@@ -18,7 +20,7 @@ In the screenshot, the $110 put shows a $1.73 bid and a $1.89 ask. Those are USD
 
 The screenshot's **“10 contracts” means five strike rows times two option types (call + put)**. It does not mean ten trades have happened. A **$110 put** benefits from a lower SOL price at expiry; a **$110 call** benefits from a higher price. The strike is the reference price and the expiry is when the contract ends. In Soleil's current program, expiry settlement pays cash value in SOL based on intrinsic value; it does not deliver SOL at the strike.
 
-Each maker quote also has a **remaining size**. The current public quotes expose up to **0.10 SOL** each, so a 0.13 SOL order is larger than one quote can fill. That 0.10 SOL is the maker's configured quote capacity, not a protocol-wide maximum. The operator must fund the markets and publish larger quotes before larger single orders can execute.
+Each maker quote also has a **remaining size**. At last verification, the 7-day chain exposed 1 SOL per quote; the 10- and 14-day chains exposed 0.10 SOL per quote. A 1 SOL order can use a current 7-day quote, while a 0.13 SOL order is too large for a 10- or 14-day quote. Size is maker capacity, not a protocol-wide maximum or evidence of trading volume.
 
 ## What the market screen shows
 
@@ -33,7 +35,7 @@ Each maker quote also has a **remaining size**. The current public quotes expose
 | IV | Estimated implied volatility; a model input, not a forecast. |
 | Delta (Δ) | Approximate option-price sensitivity to a $1 change in SOL, per the displayed model. |
 | “Awaiting maker” | The UI has not loaded usable maker terms; displayed model values are planning-only and cannot be submitted. |
-| “Live maker quotes” | The app has received current quote references. A wallet still must review and sign the exact transaction. |
+| “Live maker quotes” | The app has received active quote references. A wallet still must review and sign the exact transaction; an active Devnet quote can have a price up to one hour old. |
 
 As checked on **2026-09-25**, the public `/api/health` endpoint reported configured and `/api/quotes` returned five 7-day strike rows with quote-account references. The attached screenshot's “Awaiting maker” label therefore looks like an old/unrefreshed UI state. Refresh the page and wait for quote loading before the demo. If it remains, refresh quotes once; do not describe model-only rows as executable.
 
