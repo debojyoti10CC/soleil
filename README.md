@@ -91,7 +91,7 @@ flowchart LR
     UI --> G[Guard]
     UI --> P[Portfolio]
     UI -->|spot + balances| RPC[Solana Devnet RPC]
-    UI -->|validated quote request| Q[/api/quotes or maker gateway]
+    UI -->|validated quote request| Q[API quotes route or maker gateway]
     Q --> MG[Maker gateway]
     MG --> RPC
     MG -->|maker signs| PROG[Soleil settlement program]
