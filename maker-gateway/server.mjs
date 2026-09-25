@@ -87,7 +87,11 @@ function requireConfig() {
 }
 
 function loadMaker() {
-  const secret = JSON.parse(readFileSync(resolve(MAKER_KEYPAIR), 'utf8'))
+  const configured = String(MAKER_KEYPAIR || '').trim()
+  if (!configured) throw new Error('SOLEIL_MAKER_KEYPAIR is not configured.')
+  const secret = configured.startsWith('[')
+    ? JSON.parse(configured)
+    : JSON.parse(readFileSync(resolve(configured), 'utf8'))
   return Keypair.fromSecretKey(Uint8Array.from(secret))
 }
 
@@ -453,7 +457,7 @@ function json(response, status, payload) {
   response.end(JSON.stringify(payload))
 }
 
-const server = createServer(async (request, response) => {
+export async function handleGatewayRequest(request, response) {
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`)
     if (url.pathname === '/health') return json(response, 200, { ok: true, configured: Boolean(PROGRAM_ID && MAKER_KEYPAIR && LIQUIDITY_LAMPORTS > 0 && QUOTE_SIZE_LAMPORTS > 0 && COLLATERAL_LAMPORTS_PER_SOL > 0) })
@@ -474,8 +478,11 @@ const server = createServer(async (request, response) => {
     console.error('gateway request failed:', error)
     return json(response, 503, { error: error instanceof Error ? error.message : 'Maker gateway unavailable.' })
   }
-})
+}
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Soleil maker gateway listening on http://127.0.0.1:${PORT}`)
-})
+if (process.env.VERCEL !== '1') {
+  const server = createServer(handleGatewayRequest)
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`Soleil maker gateway listening on http://127.0.0.1:${PORT}`)
+  })
+}

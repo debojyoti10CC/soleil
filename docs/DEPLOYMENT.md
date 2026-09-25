@@ -26,6 +26,10 @@ The deployed program-data payload is byte-for-byte identical to `target/deploy/s
 
 The configured local maker gateway is live at [`http://127.0.0.1:8787/health`](http://127.0.0.1:8787/health) and returns on-chain quote references from [`/quotes`](http://127.0.0.1:8787/quotes?underlying=SOL&spot=111.94&expiryDays=7). It initializes/funds missing Devnet markets and publishes bounded quotes using the configured maker keypair; it does not fabricate fills.
 
+### Vercel deployment
+
+The repository includes Vercel-compatible serverless routes in `api/quotes.mjs`, `api/settle.mjs`, and `api/health.mjs`. Import `vercel.env` into the Vercel project for the public client settings. Import the local `vercel-server.env` separately for `SOLEIL_RPC_URL`, `SOLEIL_PROGRAM_ID`, the maker keypair, and maker limits. `vercel-server.env` is intentionally ignored by Git because it contains the server signing key. After deployment, verify `/api/health` returns `configured: true` and `/api/quotes?underlying=SOL&spot=111.94&expiryDays=7` returns live on-chain quote accounts.
+
 For a fresh program ID, fund the payer and run `powershell -ExecutionPolicy Bypass -File scripts/deploy-devnet.ps1 -Keypair .\target\deploy\soleil_settlement_devnet_20260925-keypair.json -PayerKeypair $env:USERPROFILE\.config\solana\id.json`. Copy its printed `VITE_SOLEIL_PROGRAM_ID` into `.env.local`, then restart Vite. For an upgrade to an existing program, `-PayerKeypair` must be the current upgrade-authority keypair.
 
 Before setting `VITE_SOLEIL_PROGRAM_ID`, the deployer must:

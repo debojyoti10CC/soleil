@@ -45,6 +45,8 @@ The deployed program bytes match `target/deploy/soleil_settlement.so` exactly (1
 
 The local maker gateway is configured against this program and serves live on-chain quote references at [`/quotes`](http://127.0.0.1:8787/quotes?underlying=SOL&spot=111.94&expiryDays=7). Check [`/health`](http://127.0.0.1:8787/health) before opening a position. The gateway uses the configured Devnet maker keypair and fails closed instead of returning fabricated fills.
 
+Vercel can host the same gateway as serverless routes: `/api/health`, `/api/quotes`, and `/api/settle`. Import [`vercel.env`](vercel.env) for the browser variables, then import the local-only `vercel-server.env` for the server variables. That second file contains the maker signing key, is ignored by Git, and must remain a Vercel server-side secret. The browser is configured to call `/api/quotes` and `/api/settle` on the same deployment.
+
 ## Run locally
 
 ```bash

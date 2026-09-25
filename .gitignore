@@ -5,3 +5,5 @@ dist/
 .env
 maker-keypair.json
 target/
+
+vercel-server.env
