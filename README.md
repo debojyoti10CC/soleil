@@ -489,6 +489,7 @@ The UI is designed around this boundary: indicative model values are clearly sep
 
 ## Documentation
 
+- [`docs/JUDGE_GUIDE.md`](docs/JUDGE_GUIDE.md) — plain-language bid/ask explainer, judge demo script, project progress, and end-to-end flowcharts
 - [`docs/PRODUCT.md`](docs/PRODUCT.md) — product thesis and user journeys
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — client, program, oracle, and clearing architecture
 - [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — account layouts, PDAs, instructions, and settlement rules
