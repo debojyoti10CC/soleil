@@ -101,6 +101,192 @@ flowchart LR
     POS --> P
 ```
 
+## System showcase
+
+The complete product has three user surfaces, two execution paths, and one on-chain source of truth. The model quote is useful for discovery; only a validated quote account can enter the transaction path.
+
+### 1. Product-to-protocol map
+
+```mermaid
+flowchart TB
+    subgraph USER[User surfaces]
+        MARKET[Market<br/>SOL calls and puts]
+        GUARD[Guard<br/>treasury floor]
+        PORTFOLIO[Portfolio<br/>positions and receipts]
+    end
+
+    subgraph CLIENT[Browser client]
+        WALLET[Wallet Adapter<br/>Wallet Standard + fallbacks]
+        MODEL[Indicative pricing model<br/>spot, expiry, strike, IV]
+        VALIDATE[Quote validator<br/>PDA + terms + freshness]
+        TX[Transaction builder<br/>open, close, settle]
+    end
+
+    subgraph SERVICES[Off-chain services]
+        ORACLE[Spot data source]
+        GATEWAY[Maker gateway<br/>quote + settlement routes]
+        OPERATOR[Maker / oracle signer]
+    end
+
+    subgraph CHAIN[Solana Devnet]
+        PROGRAM[Soleil settlement program]
+        ACCOUNTS[(Market / Quote / Position accounts)]
+    end
+
+    MARKET --> MODEL
+    GUARD --> MODEL
+    MARKET --> VALIDATE
+    GUARD --> VALIDATE
+    MODEL --> ORACLE
+    VALIDATE --> GATEWAY
+    GATEWAY --> OPERATOR
+    OPERATOR --> PROGRAM
+    WALLET --> TX
+    VALIDATE --> TX
+    TX --> PROGRAM
+    PROGRAM --> ACCOUNTS
+    ACCOUNTS --> PORTFOLIO
+    PORTFOLIO --> WALLET
+```
+
+### 2. Market user journey
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Trader
+    participant UI as Soleil client
+    participant Wallet as Solana wallet
+    participant RPC as Devnet RPC
+    participant Gateway as Maker gateway
+    participant Program as Soleil program
+
+    Trader->>UI: Open Market and choose expiry
+    UI->>RPC: Read SOL balance and spot
+    RPC-->>UI: Live balance and price
+    UI-->>Trader: Render five-strike call/put chain
+    Trader->>UI: Select kind, strike, and Buy or Sell
+    UI->>Gateway: Request SOL quote rows
+    Gateway->>Program: Read active Market and Quote accounts
+    Program-->>Gateway: On-chain maker terms
+    Gateway-->>UI: Bid/ask quote PDA, nonce, size, terms
+    UI->>UI: Validate side, expiry, maker, PDA, and lamports
+    UI-->>Trader: Show executable review
+    Trader->>Wallet: Approve OpenPosition
+    Wallet->>Program: Sign and submit transaction
+    Program-->>Wallet: Confirmed signature
+    Wallet-->>UI: Receipt
+    UI->>RPC: Query Position account
+    RPC-->>UI: Confirmed position
+    UI-->>Trader: Portfolio position and Explorer link
+```
+
+### 3. Guard protection journey
+
+```mermaid
+flowchart LR
+    A[Connect wallet] --> B[Read native SOL balance]
+    B --> C[Read live SOL/USD spot]
+    C --> D[Choose minimum treasury floor]
+    D --> E[Derive protection strike<br/>floor divided by SOL exposure]
+    E --> F[Select 7, 10, or 14 days]
+    F --> G[Request matching put quote]
+    G --> H{Validated maker quote?}
+    H -->|No| I[Planning view only<br/>explain why execution is paused]
+    H -->|Yes| J[Review premium, collateral,<br/>quantity, and payoff]
+    J --> K[Wallet signs OpenPosition]
+    K --> L[Program records protected position]
+    L --> M[Portfolio tracks status]
+```
+
+### 4. Maker quote lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unconfigured
+    Unconfigured --> MarketReady: program + maker + limits configured
+    MarketReady --> Funded: authority deposits SOL liquidity
+    Funded --> Quoted: publish bid and ask Quote accounts
+    Quoted --> Quoted: refresh before expiry
+    Quoted --> Consumed: taker opens and size is consumed
+    Quoted --> Expired: quote expiry reached
+    Expired --> Quoted: publish replacement quote
+    Consumed --> PartiallyFilled: remaining size greater than zero
+    PartiallyFilled --> Consumed: another valid open
+    Consumed --> PositionOpen: position account created
+    PositionOpen --> Closed: owner closes before expiry
+    PositionOpen --> Settled: oracle settles after expiry
+    Unconfigured --> FailedClosed: missing key, program, or liquidity
+    FailedClosed --> MarketReady: operator fixes configuration
+```
+
+### 5. On-chain account relationships
+
+```mermaid
+flowchart TD
+    AUTH[Market authority / maker]
+    ORACLE[Configured oracle signer]
+    TRADER[Trader wallet]
+    MARKET[(Market PDA)]
+    QUOTE_BID[(Bid Quote PDA)]
+    QUOTE_ASK[(Ask Quote PDA)]
+    POSITION[(Position PDA)]
+
+    AUTH -->|initialize + deposit| MARKET
+    AUTH -->|publish bid| QUOTE_BID
+    AUTH -->|publish ask| QUOTE_ASK
+    TRADER -->|sign open| POSITION
+    QUOTE_BID -->|buy path| POSITION
+    QUOTE_ASK -->|sell path| POSITION
+    MARKET -->|reserve liquidity| POSITION
+    POSITION -->|premium / collateral| MARKET
+    TRADER -->|close before expiry| POSITION
+    ORACLE -->|fresh price after expiry| POSITION
+    POSITION -->|payout and release| TRADER
+
+    classDef actor fill:#1c1630,stroke:#cb8de8,color:#fff;
+    classDef account fill:#16151a,stroke:#8b5cf6,color:#fff;
+    class AUTH,ORACLE,TRADER actor;
+    class MARKET,QUOTE_BID,QUOTE_ASK,POSITION account;
+```
+
+### 6. Deployment topology
+
+```mermaid
+flowchart LR
+    DEV[Developer push to main] --> VERCEL[Vercel build]
+    VERCEL --> STATIC[Static Soleil client]
+    VERCEL --> API[API routes<br/>health · quotes · settle]
+    STATIC --> BROWSER[Chrome / Edge / mobile wallet browser]
+    BROWSER -->|public variables| RPC[Devnet RPC]
+    BROWSER --> API
+    API -->|server-only variables| GATEWAY[Maker gateway handler]
+    GATEWAY -->|private maker key| PROGRAM[Soleil program on Devnet]
+    LOCAL[Local operator] -->|npm run maker:dev| GATEWAY_LOCAL[Local gateway :8787]
+    GATEWAY_LOCAL --> PROGRAM
+```
+
+The public client can be deployed without a signing key. The API routes return `configured: false` or an execution error until the server-side maker keypair, program ID, liquidity budget, quote size, and collateral terms are present. This is intentional: a missing operator is surfaced as a planning state instead of fabricated liquidity.
+
+### 7. Execution guardrails
+
+```mermaid
+flowchart TD
+    START[User clicks Buy or Sell] --> PROGRAM_SET{Program configured?}
+    PROGRAM_SET -->|No| PLAN[Keep planning mode]
+    PROGRAM_SET -->|Yes| QUOTE_SET{Validated maker quote?}
+    QUOTE_SET -->|No| PLAN
+    QUOTE_SET -->|Yes| FRESH{Quote active and unexpired?}
+    FRESH -->|No| PLAN
+    FRESH -->|Yes| SIDE{Correct quote side and market?}
+    SIDE -->|No| REJECT[Program rejects transaction]
+    SIDE -->|Yes| SIZE{Enough remaining size and liquidity?}
+    SIZE -->|No| REJECT
+    SIZE -->|Yes| SIGN[Wallet signs exact lamport terms]
+    SIGN --> OPEN[Program consumes quote and opens position]
+    OPEN --> RECEIPT[Confirmed signature and Portfolio record]
+```
+
 ### Web application
 
 The Vite + React client owns product state, responsive presentation, wallet connection, transaction signing, and account discovery.
