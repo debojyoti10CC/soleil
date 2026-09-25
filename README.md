@@ -1,5 +1,6 @@
 <p align="center">
-  <img width="132" height="132" alt="Soleil logo" src="./public/soleil-logo.png" />
+  <img width="1200" height="550" alt="image" src="https://github.com/user-attachments/assets/1e3cf8cd-fd3f-40a7-ae35-71b59050389b" />
+
 </p>
 
 <h1 align="center">Soleil</h1>
