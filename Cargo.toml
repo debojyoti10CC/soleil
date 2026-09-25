@@ -1,0 +1,3 @@
+[workspace]
+members = ["programs/soleil-settlement", "programs/soleil-settlement-integration"]
+resolver = "2"
