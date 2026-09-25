@@ -90,6 +90,12 @@ const hasExecutableQuote = (quote: OptionQuote | undefined, side: TradeSide, qua
   return Boolean(terms && terms.expiresAt > Date.now() / 1000 + 15 && terms.remainingSize >= quantity)
 }
 
+const quoteSizeMessage = (quote: OptionQuote | undefined, side: TradeSide, quantity: number) => {
+  const terms = quoteForSide(quote, side)
+  if (!terms || terms.expiresAt <= Date.now() / 1000 + 15 || terms.remainingSize >= quantity) return null
+  return `Only ${terms.remainingSize.toFixed(2)} SOL available`
+}
+
 
 function SolanaLogo({ className = '' }: { className?: string }) {
 
@@ -915,6 +921,7 @@ function MarketChart({ spot, spotChange }: { spot: number; spotChange: number })
 
 function MarketTicket({ appMode, quoteMode, series, kind, side, setSide, spot, quantity, setQuantity, walletConnected, executionEnabled, onOpenTrade, onGuard }: { appMode: AppMode; quoteMode: 'maker' | 'indicative' | 'offline'; series?: OptionSeries; kind: OptionKind; side: TradeSide; setSide: (side: TradeSide) => void; spot: number; quantity: number; setQuantity: (value: number) => void; walletConnected: boolean; executionEnabled: boolean; onOpenTrade: () => void; onGuard: () => void }) {
   const quote = series?.[kind]
+  const sizeMessage = quoteMode === 'maker' ? quoteSizeMessage(quote, side, quantity) : null
 
   const executionPrice = side === 'buy' ? quote?.ask : quote?.bid
 
@@ -926,9 +933,9 @@ function MarketTicket({ appMode, quoteMode, series, kind, side, setSide, spot, q
     return { delta: quote?.delta ?? indicative.delta, gamma: quote?.gamma ?? indicative.gamma, theta: quote?.theta ?? indicative.theta, vega: quote?.vega ?? indicative.vega }
   })() : null
 
-  const unavailableLabel = appMode === 'planning' ? 'Planning preview' : quoteMode === 'offline' ? 'Maker service offline' : 'Maker quote required'
+  const unavailableLabel = appMode === 'planning' ? 'Planning preview' : quoteMode === 'offline' ? 'Maker service offline' : sizeMessage ?? 'Maker quote required'
   const actionLabel = executionEnabled ? (walletConnected ? `Review ${side} order` : 'Connect wallet') : appMode === 'planning' ? `Preview ${side} order` : unavailableLabel
-  const ticketNote = executionEnabled ? 'Wallet-signed position · Solana devnet' : appMode === 'planning' ? 'Planning mode · execution paused' : quoteMode === 'offline' ? 'Devnet mode · start the maker service to enable execution' : 'Devnet mode · waiting for a live maker quote'
+  const ticketNote = executionEnabled ? 'Wallet-signed position · Solana devnet' : appMode === 'planning' ? 'Planning mode · execution paused' : quoteMode === 'offline' ? 'Devnet mode · start the maker service to enable execution' : sizeMessage ? 'Reduce the quantity or wait for a larger maker quote.' : 'Devnet mode · waiting for a live maker quote'
 
   return <aside className="market-ticket"><div className="ticket-head"><div><p className="eyebrow">ORDER ENTRY</p><h2>SOL {kind === 'put' ? 'Put' : 'Call'}</h2><p>Strike {series ? money(series.strike, 0) : '—'} · {series?.expiryLabel ?? 'Loading market'} · {series?.expiryDays ?? '—'} days</p></div><button className="help-button" aria-label="Order entry help" title="Quotes and settlement details"><CircleHelp size={15} /></button></div><div className="order-toggle" role="tablist" aria-label="Trade side"><button className={side === 'buy' ? 'active' : ''} onClick={() => setSide('buy')}>Buy</button><button className={side === 'sell' ? 'active' : ''} onClick={() => setSide('sell')}>Sell</button></div><div className="ticket-inputs"><label className="form-field"><span>Quantity <small>SOL</small></span><div className="input-shell"><input type="number" value={quantity} min={minimumTradeSizeSol} step={minimumTradeSizeSol} onChange={(event) => setQuantity(Math.max(minimumTradeSizeSol, Number(event.target.value)))} /><span>SOL</span></div></label><label className="form-field"><span>Limit price <small>per SOL</small></span><div className="input-shell"><input type="text" value={executionPrice?.toFixed(2) ?? '—'} readOnly /><span>USD</span></div></label></div><div className="ticket-book"><div><span>Best bid</span><strong>{quote ? money(quote.bid) : '—'}</strong></div><div><span>Best ask</span><strong>{quote ? money(quote.ask) : '—'}</strong></div><div><span>Spread</span><strong>{quote ? money(quote.ask - quote.bid) : '—'}</strong></div></div>{greeks && <div className="greeks-strip"><span><small>Δ</small>{greeks.delta.toFixed(2)}</span><span><small>Γ</small>{greeks.gamma.toFixed(3)}</span><span><small>Θ</small>{greeks.theta.toFixed(3)}</span><span><small>V</small>{greeks.vega.toFixed(2)}</span></div>}<div className="payoff-preview"><div><span>At expiry at spot</span><strong className={payoff >= 0 ? 'up' : 'negative'}>{payoff >= 0 ? '+' : ''}{money(payoff)}</strong></div><small>{side === 'buy' ? 'Maximum loss is the premium paid.' : 'Short option risk depends on locked collateral.'}</small></div><div className="ticket-summary"><div><span>{side === 'buy' ? 'Estimated cost' : 'Estimated proceeds'}</span><strong>{quote ? money(tradeValue) : '—'}</strong></div><div><span>{side === 'buy' ? 'Maker payout reserve' : 'Collateral required'}</span><strong>{quoteForSide(quote, side) ? solAmount(quoteTotalLamports(quoteForSide(quote, side)!.collateralLamportsPerSol, quantity)) : 'Quote required'}</strong></div><div><span>Settlement</span><span className="verified"><Check size={13} /> Solana program</span></div></div><button className="primary-action" onClick={onOpenTrade} disabled={!series || (appMode === 'devnet' && !executionEnabled)}>{actionLabel} <ArrowRight size={15} /></button><button className="guard-link" onClick={onGuard}><ShieldCheck size={14} /> Protect a treasury position <ArrowRight size={13} /></button><p className="ticket-note">{ticketNote}</p></aside>
 }
@@ -938,6 +945,7 @@ function MarketTicket({ appMode, quoteMode, series, kind, side, setSide, spot, q
 function TradePanel({ appMode, quoteMode, walletBusy, kind, series, side, setSide, quantity, setQuantity, tradeValue, walletConnected, executionEnabled, onClose, onSubmit }: { appMode: AppMode; quoteMode: 'maker' | 'indicative' | 'offline'; walletBusy: boolean; kind: OptionKind; series: OptionSeries; side: TradeSide; setSide: (side: TradeSide) => void; quantity: number; setQuantity: (value: number) => void; tradeValue: number; walletConnected: boolean; executionEnabled: boolean; onClose: () => void; onSubmit: () => void }) {
 
   const quote = series[kind]
+  const sizeMessage = quoteMode === 'maker' ? quoteSizeMessage(quote, side, quantity) : null
 
   const executionPrice = side === 'buy' ? quote.ask : quote.bid
 
@@ -947,9 +955,9 @@ function TradePanel({ appMode, quoteMode, walletBusy, kind, series, side, setSid
 
   const collateral = side === 'sell' && terms ? quoteTotalLamports(terms.collateralLamportsPerSol, quantity) : 0
 
-  const unavailableLabel = appMode === 'planning' ? 'Planning preview' : quoteMode === 'offline' ? 'Maker service offline' : 'Maker quote required'
+  const unavailableLabel = appMode === 'planning' ? 'Planning preview' : quoteMode === 'offline' ? 'Maker service offline' : sizeMessage ?? 'Maker quote required'
   const actionLabel = walletBusy ? 'Confirming transaction…' : executionEnabled ? (walletConnected ? `Sign ${side} position` : 'Connect wallet to trade') : unavailableLabel
-  const drawerNote = walletBusy ? 'Confirm the transaction in your wallet. The signed position will appear after Devnet confirms it.' : executionEnabled ? 'Your signed order uses a validated maker quote and the deployed Soleil program.' : appMode === 'planning' ? 'Planning mode uses indicative prices only. Switch to Devnet to submit.' : quoteMode === 'offline' ? 'Devnet mode is waiting for the maker service to publish on-chain quotes.' : 'Devnet mode is waiting for a live maker quote.'
+  const drawerNote = walletBusy ? 'Confirm the transaction in your wallet. The signed position will appear after Devnet confirms it.' : executionEnabled ? 'Your signed order uses a validated maker quote and the deployed Soleil program.' : appMode === 'planning' ? 'Planning mode uses indicative prices only. Switch to Devnet to submit.' : quoteMode === 'offline' ? 'Devnet mode is waiting for the maker service to publish on-chain quotes.' : sizeMessage ? 'Reduce the quantity or wait for a larger maker quote.' : 'Devnet mode is waiting for a live maker quote.'
 
   return <div className="drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="trade-drawer"><div className="drawer-head"><div><p className="eyebrow">TRADE CONTRACT</p><h2>SOL {kind === 'put' ? 'Put' : 'Call'}</h2><p>Strike {money(series.strike, 0)} · {series.expiryLabel} · {series.expiryDays} days</p></div><button className="icon-button" onClick={onClose} aria-label="Close trade ticket"><X size={18} /></button></div><div className="trade-tabs" role="tablist" aria-label="Trade side"><button className={side === 'buy' ? 'active' : ''} onClick={() => setSide('buy')}>Buy</button><button className={side === 'sell' ? 'active' : ''} onClick={() => setSide('sell')}>Sell</button></div><label className="form-field"><span>Quantity <small>SOL</small></span><div className="input-shell"><input value={quantity} type="number" min={minimumTradeSizeSol} step={minimumTradeSizeSol} onChange={(event) => setQuantity(Math.max(minimumTradeSizeSol, Number(event.target.value)))} /><span>SOL</span></div></label><label className="form-field"><span>Limit price <small>per SOL</small></span><div className="input-shell"><input value={executionPrice.toFixed(2)} readOnly /><span>USD</span></div></label><div className="drawer-summary"><div><span>{side === 'buy' ? 'Best ask' : 'Best bid'}</span><strong>{money(executionPrice)}</strong></div><div><span>{side === 'buy' ? 'Estimated cost' : 'Estimated proceeds'}</span><strong>{money(tradeValue)}</strong></div><div><span>On-chain premium</span><strong>{premium > 0 ? solAmount(premium) : '—'}</strong></div>{side === 'sell' && <div><span>Collateral locked</span><strong>{collateral > 0 ? solAmount(collateral) : '—'}</strong></div>}<div><span>Settlement</span><span className="verified"><Check size={13} /> Solana program</span></div></div><button className="primary-action" onClick={onSubmit} disabled={!executionEnabled || walletBusy}>{actionLabel} <ArrowRight size={15} /></button><p className="drawer-note">{drawerNote}</p></aside></div>
 

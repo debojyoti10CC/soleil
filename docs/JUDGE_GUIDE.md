@@ -18,6 +18,8 @@ In the screenshot, the $110 put shows a $1.73 bid and a $1.89 ask. Those are USD
 
 The screenshot's **“10 contracts” means five strike rows times two option types (call + put)**. It does not mean ten trades have happened. A **$110 put** benefits from a lower SOL price at expiry; a **$110 call** benefits from a higher price. The strike is the reference price and the expiry is when the contract ends. In Soleil's current program, expiry settlement pays cash value in SOL based on intrinsic value; it does not deliver SOL at the strike.
 
+Each maker quote also has a **remaining size**. The current public quotes expose up to **0.10 SOL** each, so a 0.13 SOL order is larger than one quote can fill. That 0.10 SOL is the maker's configured quote capacity, not a protocol-wide maximum. The operator must fund the markets and publish larger quotes before larger single orders can execute.
+
 ## What the market screen shows
 
 | Screen item | Plain-language meaning |
