@@ -30,6 +30,21 @@ The options chain is currently an **indicative pricing surface**, not a claim of
 
 For the judge-facing walkthrough and exact operator steps, see [`docs/DEMO.md`](docs/DEMO.md).
 
+## Devnet deployment
+
+The native `soleil-settlement` program is deployed on Solana Devnet and the client is configured to use it:
+
+- Program: [`3xZZq7Wd23M1eyggca8KCbhNx6FcNpsKTHGJq751n66k`](https://explorer.solana.com/address/3xZZq7Wd23M1eyggca8KCbhNx6FcNpsKTHGJq751n66k?cluster=devnet)
+- Program-data account: [`GyBq7QKwRBM51XWYLxD847kaJCxdsv9s51Uiu2mBTz4p`](https://explorer.solana.com/address/GyBq7QKwRBM51XWYLxD847kaJCxdsv9s51Uiu2mBTz4p?cluster=devnet)
+- Deployment transaction: [`4okq6ufR6Ejur8EuxmnyVHNwqnehcsREiFKCtmXtoxSNaPRCyzTabCtGV96o2Qq1TETF4RREWRt6baKXLQqLWM6T`](https://explorer.solana.com/tx/4okq6ufR6Ejur8EuxmnyVHNwqnehcsREiFKCtmXtoxSNaPRCyzTabCtGV96o2Qq1TETF4RREWRt6baKXLQqLWM6T?cluster=devnet)
+- Deployment slot/time: `503929520` · `2026-09-25T09:47:17Z`
+- RPC: [`https://api.devnet.solana.com`](https://api.devnet.solana.com)
+- Local client setting: `VITE_SOLEIL_PROGRAM_ID=3xZZq7Wd23M1eyggca8KCbhNx6FcNpsKTHGJq751n66k`
+
+The deployed program bytes match `target/deploy/soleil_settlement.so` exactly (120,552 bytes; SHA-256 `8852b216462933aa9489607a4ece4a08e3135c76b43679baa117e4ad80efb3a0`). The integration crate is a local `ProgramTest` harness, not a second deployable program. Market initialization, maker liquidity, and executable quote publication are separate Devnet operator steps documented in [`docs/MAKER.md`](docs/MAKER.md).
+
+The local maker gateway is configured against this program and serves live on-chain quote references at [`/quotes`](http://127.0.0.1:8787/quotes?underlying=SOL&spot=111.94&expiryDays=7). Check [`/health`](http://127.0.0.1:8787/health) before opening a position. The gateway uses the configured Devnet maker keypair and fails closed instead of returning fabricated fills.
+
 ## Run locally
 
 ```bash

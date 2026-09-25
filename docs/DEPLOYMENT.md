@@ -14,9 +14,19 @@ npm run maker:check
 
 ## Program deployment
 
-The BPF build now succeeds with Agave's `cargo-build-sbf`. Program deployed to Devnet at `CrCvZbnNDhdHujrExPwDkVykrwnndQr3JL6xSQp56U2k`. Deployment payer is separate from program ID keypair.
+The BPF build succeeds with Agave's `cargo-build-sbf`. The current Devnet deployment is:
 
-After funding the generated keypair, run `powershell -ExecutionPolicy Bypass -File scripts/deploy-devnet.ps1`. Copy its printed `VITE_SOLEIL_PROGRAM_ID` into `.env.local`, then restart Vite.
+- Program: [`3xZZq7Wd23M1eyggca8KCbhNx6FcNpsKTHGJq751n66k`](https://explorer.solana.com/address/3xZZq7Wd23M1eyggca8KCbhNx6FcNpsKTHGJq751n66k?cluster=devnet)
+- Program-data account: [`GyBq7QKwRBM51XWYLxD847kaJCxdsv9s51Uiu2mBTz4p`](https://explorer.solana.com/address/GyBq7QKwRBM51XWYLxD847kaJCxdsv9s51Uiu2mBTz4p?cluster=devnet)
+- Deployment transaction: [`4okq6ufR6Ejur8EuxmnyVHNwqnehcsREiFKCtmXtoxSNaPRCyzTabCtGV96o2Qq1TETF4RREWRt6baKXLQqLWM6T`](https://explorer.solana.com/tx/4okq6ufR6Ejur8EuxmnyVHNwqnehcsREiFKCtmXtoxSNaPRCyzTabCtGV96o2Qq1TETF4RREWRt6baKXLQqLWM6T?cluster=devnet)
+- Deployment slot/time: `503929520` · `2026-09-25T09:47:17Z`
+- RPC: [`https://api.devnet.solana.com`](https://api.devnet.solana.com)
+
+The deployed program-data payload is byte-for-byte identical to `target/deploy/soleil_settlement.so`: 120,552 bytes, SHA-256 `8852b216462933aa9489607a4ece4a08e3135c76b43679baa117e4ad80efb3a0`. `VITE_SOLEIL_PROGRAM_ID` is set to this program in `.env.local`. The `soleil-settlement-integration` crate is a local `ProgramTest` harness and is not a second on-chain program.
+
+The configured local maker gateway is live at [`http://127.0.0.1:8787/health`](http://127.0.0.1:8787/health) and returns on-chain quote references from [`/quotes`](http://127.0.0.1:8787/quotes?underlying=SOL&spot=111.94&expiryDays=7). It initializes/funds missing Devnet markets and publishes bounded quotes using the configured maker keypair; it does not fabricate fills.
+
+For a fresh program ID, fund the payer and run `powershell -ExecutionPolicy Bypass -File scripts/deploy-devnet.ps1 -Keypair .\target\deploy\soleil_settlement_devnet_20260925-keypair.json -PayerKeypair $env:USERPROFILE\.config\solana\id.json`. Copy its printed `VITE_SOLEIL_PROGRAM_ID` into `.env.local`, then restart Vite. For an upgrade to an existing program, `-PayerKeypair` must be the current upgrade-authority keypair.
 
 Before setting `VITE_SOLEIL_PROGRAM_ID`, the deployer must:
 
