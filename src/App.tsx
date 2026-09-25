@@ -9,7 +9,7 @@ import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronDown, CircleHel
 import { buildOptionSeries, buildStrategyLegs, calculateGreeks, payoffAtExpiry, strategyPayoffAtExpiry, type OptionKind, type OptionQuote, type OptionSeries, type Position, type QuoteTerms, type StrategyKind, type StrategyLeg, type TradeSide, type View } from './domain'
 import { fetchMakerQuotes, quoteGatewayConfigured, settleThroughGateway } from './quotes'
 
-import { accountExists, fetchOnchainPositions, fetchSolMarket, getExplorerAddressUrl, getExplorerTransactionUrl, getSolBalance, requestDevnetSol, shortAddress, submitSolanaTransaction, type OnchainPosition, type WalletSession } from './solana'
+import { fetchOnchainPositions, fetchSolMarket, getExplorerAddressUrl, getExplorerTransactionUrl, getSolBalance, requestDevnetSol, shortAddress, submitSolanaTransaction, type OnchainPosition, type WalletSession } from './solana'
 import { buildClosePositionInstruction, buildOpenPositionInstruction, buildProtectionInstruction, deriveMarketPda, derivePositionPda, getSettlementProgramId, quoteTotalLamports } from './settlement'
 
 
@@ -161,6 +161,7 @@ function App() {
   // browser storage: a disconnected wallet must never display stale trades.
 
   const [positions, setPositions] = useState<Position[]>([])
+  const [positionsLoadError, setPositionsLoadError] = useState(false)
 
   const [quantityText, setQuantityText] = useState(String(minimumTradeSizeSol))
   const quantity = Number(quantityText)
@@ -218,6 +219,7 @@ function App() {
     walletRef.current = address
 
     setPositions([])
+    setPositionsLoadError(false)
 
     setWalletBalance(0)
 
@@ -246,6 +248,7 @@ function App() {
     setWalletMenuOpen(false)
 
     setPositions([])
+    setPositionsLoadError(false)
 
   }
 
@@ -448,9 +451,11 @@ function App() {
         return { ...onchainToPosition(item), receipt: previous?.receipt }
 
       }))
+      setPositionsLoadError(false)
 
     } catch {
 
+      setPositionsLoadError(true)
       notify('Could not refresh on-chain positions')
 
     }
@@ -497,6 +502,11 @@ function App() {
     setWalletModalVisible(true)
     return null
   }
+
+  useEffect(() => {
+    if (!walletConnected || !walletAddress || view !== 'portfolio') return
+    void syncOnchainPositions(walletAddress)
+  }, [view, walletConnected, walletAddress])
 
 
 
@@ -586,8 +596,6 @@ function App() {
       const market = deriveMarketPda(programId, selectedStrike, expiryAt, selectedKind)
 
       const instructions: TransactionInstruction[] = []
-
-      if (!await accountExists(market)) throw new Error('This market is not initialized by its maker yet.')
 
       const executableQuote = quoteForSide(selectedQuote, tradeSide)
 
@@ -788,7 +796,9 @@ function App() {
 
         {!spotFresh && <p className="feed-notice" role="status">{spotUpdatedAt ? 'Price feed is stale. Trading is paused while reconnecting.' : 'Connecting to the live SOL price feed…'}</p>}
 
-        {view === 'market' && <MarketView appMode={appMode} expiry={expiry} setExpiry={setExpiry} series={visibleSeries} positions={positions} selectedSeries={selectedSeries} selectedStrike={selectedStrike} selectedKind={selectedKind} side={tradeSide} setSide={setTradeSide} spot={spot} spotChange={spotChange} spotHistory={spotHistory} quoteMode={quoteMode} onSelect={(item, kind) => { setSelectedStrike(item.strike); setSelectedKind(kind) }} search={search} setSearch={setSearch} quantity={quantity} quantityText={quantityText} setQuantityText={setQuantityText} walletConnected={walletConnected} executionEnabled={executionEnabled} onOpenTrade={() => setTradePanelOpen(true)} onRefresh={() => { setMarketRefreshToken((value) => value + 1); notify('Refreshing live spot and quotes') }} onGuard={() => navigate('guard')} />}
+        {walletConnected && positionsLoadError && <p className="feed-notice" role="alert">Could not load Devnet positions. <button className="text-button" onClick={() => void syncOnchainPositions(walletAddress)}>Retry</button></p>}
+
+        {view === 'market' && <MarketView appMode={appMode} expiry={expiry} setExpiry={setExpiry} series={visibleSeries} positions={positions} selectedSeries={selectedSeries} selectedStrike={selectedStrike} selectedKind={selectedKind} side={tradeSide} setSide={setTradeSide} spot={spot} spotChange={spotChange} spotHistory={spotHistory} quoteMode={quoteMode} onSelect={(item, kind) => { setSelectedStrike(item.strike); setSelectedKind(kind) }} search={search} setSearch={setSearch} quantity={quantity} quantityText={quantityText} setQuantityText={setQuantityText} walletConnected={walletConnected} executionEnabled={executionEnabled} onOpenTrade={() => setTradePanelOpen(true)} onRefresh={() => { setMarketRefreshToken((value) => value + 1); if (walletAddress) void syncOnchainPositions(walletAddress); notify('Refreshing live spot and quotes') }} onGuard={() => navigate('guard')} />}
         {view === 'guard' && <GuardView appMode={appMode} quoteMode={guardQuoteMode} floor={guardFloor} setFloor={setGuardFloor} duration={guardDuration} setDuration={setGuardDuration} premium={guardPremium} strike={guardStrike} spot={spot} walletBalance={walletBalance} executionEnabled={guardExecutionEnabled} onGetQuotes={() => walletConnected ? (guardExecutionEnabled ? setGuardModalOpen(true) : notify(appMode === 'planning' ? 'Planning mode does not submit protection trades.' : 'Protection is paused until a live maker quote is available')) : connectWallet()} onPortfolio={() => navigate('portfolio')} />}
 
         {view === 'portfolio' && <PortfolioView positions={positions} series={series} quoteMode={quoteMode} spot={spot} walletBalance={walletBalance} filter={portfolioFilter} setFilter={setPortfolioFilter} onGuard={() => navigate('guard')} onClose={closePosition} onSettle={settlePosition} />}
@@ -801,7 +811,7 @@ function App() {
 
       {mobileWalletOpen && <MobileWalletSheet isMobile={window.matchMedia('(max-width: 760px)').matches} hasDetectedWallet={wallets.some(({ readyState }) => readyState === WalletReadyState.Installed)} onClose={() => setMobileWalletOpen(false)} onUseDetected={async () => { setMobileWalletOpen(false); const detected = wallets.find(({ readyState }) => readyState === WalletReadyState.Installed); if (!detected) return; if (wallet?.adapter.name === detected.adapter.name) await connectWalletDirect(); else select(detected.adapter.name) }} onChooseWallet={() => { setMobileWalletOpen(false); setWalletModalVisible(true) }} />}
 
-      {guardModalOpen && <GuardModal duration={guardDuration} premium={guardPremium} strike={guardStrike} quantity={walletBalance} onClose={() => setGuardModalOpen(false)} onConfirm={async () => { if (!guardExecutionEnabled || walletBusy) return; setWalletBusy(true); try { const programId = getSettlementProgramId(); const guardTerms = guardQuote?.put.askQuote; if (!programId || !walletAddress || !guardQuote || !guardTerms || !hasExecutableQuote(guardQuote.put, 'buy')) throw new Error('A live maker quote is required for protection.'); const owner = new PublicKey(walletAddress); const expiryAt = guardQuote.expiryAt ?? expiryUnix(guardDuration); const market = deriveMarketPda(programId, guardStrike, expiryAt, 'put'); const instructions: TransactionInstruction[] = []; if (!await accountExists(market)) throw new Error('This protection market is not initialized by its maker yet.'); instructions.push(buildProtectionInstruction({ programId, owner, strike: guardStrike, quantity: walletBalance, floor: guardFloor, premium: guardQuote.put.ask, maker: new PublicKey(guardTerms.maker), quoteNonce: guardTerms.nonce, quoteAddress: guardTerms.quoteAddress, expiryAt, premiumLamports: quoteTotalLamports(guardTerms.premiumLamportsPerSol, walletBalance) })); const signature = await submitSolanaTransaction(instructions, sendTransaction, walletAddress); await syncOnchainPositions(walletAddress); setWalletBalance(await getSolBalance(walletAddress)); setGuardModalOpen(false); navigate('portfolio'); notify(`Protection position opened · ${signature.slice(0, 8)}...`) } catch (error) { notify(error instanceof Error ? error.message : 'Protection was not submitted') } finally { setWalletBusy(false) } }} />}
+      {guardModalOpen && <GuardModal duration={guardDuration} premium={guardPremium} strike={guardStrike} quantity={walletBalance} onClose={() => setGuardModalOpen(false)} onConfirm={async () => { if (!guardExecutionEnabled || walletBusy) return; setWalletBusy(true); try { const programId = getSettlementProgramId(); const guardTerms = guardQuote?.put.askQuote; if (!programId || !walletAddress || !guardQuote || !guardTerms || !hasExecutableQuote(guardQuote.put, 'buy')) throw new Error('A live maker quote is required for protection.'); const owner = new PublicKey(walletAddress); const expiryAt = guardQuote.expiryAt ?? expiryUnix(guardDuration); const market = deriveMarketPda(programId, guardStrike, expiryAt, 'put'); const instructions: TransactionInstruction[] = []; instructions.push(buildProtectionInstruction({ programId, owner, strike: guardStrike, quantity: walletBalance, floor: guardFloor, premium: guardQuote.put.ask, maker: new PublicKey(guardTerms.maker), quoteNonce: guardTerms.nonce, quoteAddress: guardTerms.quoteAddress, expiryAt, premiumLamports: quoteTotalLamports(guardTerms.premiumLamportsPerSol, walletBalance) })); const signature = await submitSolanaTransaction(instructions, sendTransaction, walletAddress); await syncOnchainPositions(walletAddress); setWalletBalance(await getSolBalance(walletAddress)); setGuardModalOpen(false); navigate('portfolio'); notify(`Protection position opened · ${signature.slice(0, 8)}...`) } catch (error) { notify(error instanceof Error ? error.message : 'Protection was not submitted') } finally { setWalletBusy(false) } }} />}
 
       {toast && <div className="toast"><span className="toast-icon"><Check size={13} /></span>{toast}</div>}
 

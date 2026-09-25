@@ -5,14 +5,26 @@ const publicDevnetRpcUrl = clusterApiUrl('devnet')
 export const solanaConnection = new Connection(rpcUrl, { commitment: 'confirmed', disableRetryOnRateLimit: true })
 const fallbackConnection = rpcUrl === publicDevnetRpcUrl ? null : new Connection(publicDevnetRpcUrl, { commitment: 'confirmed', disableRetryOnRateLimit: true })
 
-const retryableRpcError = (error: unknown) => /429|rate limit|too many requests|failed to fetch|fetch failed|\b50[234]\b/i.test(String(error))
+const retryableRpcError = (error: unknown) => /429|rate limit|too many requests|failed to fetch|fetch failed|timed out|timeout|\b50[234]\b/i.test(String(error))
+
+const rpcTimeout = async <T>(request: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      request,
+      new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error('Devnet RPC timed out')), 8_000) }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 async function readWithFallback<T>(read: (connection: Connection) => Promise<T>): Promise<T> {
   try {
-    return await read(solanaConnection)
+    return await rpcTimeout(read(solanaConnection))
   } catch (error) {
-    if (!fallbackConnection || !retryableRpcError(error)) throw error
-    return read(fallbackConnection)
+    if (!fallbackConnection) throw error
+    return rpcTimeout(read(fallbackConnection))
   }
 }
 
@@ -115,17 +127,26 @@ const positionStatus = (value: number): OnchainPosition['status'] | null => {
 }
 
 export async function fetchOnchainPositions(programId: PublicKey, owner: PublicKey): Promise<OnchainPosition[]> {
-  const accounts = await solanaConnection.getProgramAccounts(programId, {
+  try {
+    const response = await fetch(`/api/positions?owner=${owner.toBase58()}`, { signal: AbortSignal.timeout(8_000) })
+    if (response.ok) {
+      const data = await response.json() as { positions?: OnchainPosition[] }
+      if (Array.isArray(data.positions)) return data.positions
+    }
+  } catch {
+    // Local Vite and unavailable server routes use the direct Devnet RPC below.
+  }
+  const accounts = await readWithFallback((connection) => connection.getProgramAccounts(programId, {
     commitment: 'confirmed',
     filters: [
       { dataSize: 146 },
       { memcmp: { offset: 0, bytes: owner.toBase58() } },
     ],
-  })
+  }))
   if (accounts.length === 0) return []
 
   const marketKeys = accounts.map(({ account }) => readPubkey(new Uint8Array(account.data), 32))
-  const markets = await solanaConnection.getMultipleAccountsInfo(marketKeys, 'confirmed')
+  const markets = await readWithFallback((connection) => connection.getMultipleAccountsInfo(marketKeys, 'confirmed'))
   return accounts.flatMap(({ pubkey, account }, index) => {
     const positionBytes = new Uint8Array(account.data)
     const marketInfo = markets[index]
@@ -197,18 +218,19 @@ export async function submitSolanaTransaction(instructions: TransactionInstructi
   let prepared: { transaction: Transaction; connection: Connection } | null = null
   for (const connection of [solanaConnection, fallbackConnection].filter((item): item is Connection => item !== null)) {
     try {
-      const { blockhash } = await connection.getLatestBlockhash('confirmed')
+      const { blockhash } = await rpcTimeout(connection.getLatestBlockhash('confirmed'))
       const transaction = new Transaction({ feePayer: publicKey, recentBlockhash: blockhash }).add(
         ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }),
         ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
         ...instructions,
       )
       try {
-        const simulation = await connection.simulateTransaction(transaction)
+        const simulation = await rpcTimeout(connection.simulateTransaction(transaction))
         if (simulation.value.err) throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}`)
       } catch (error) {
-        // A fresh blockhash can be rejected by a lagging RPC during simulation.
-        if (!String(error).includes('BlockhashNotFound')) throw error
+        // A fresh blockhash or timed-out simulation does not prove the transaction invalid.
+        // The Solana program still checks the quote when the wallet submits it.
+        if (!String(error).includes('BlockhashNotFound') && !String(error).includes('Devnet RPC timed out')) throw error
       }
       prepared = { transaction, connection }
       break
@@ -232,7 +254,7 @@ export async function submitSolanaTransaction(instructions: TransactionInstructi
   while (Date.now() < deadline) {
     for (const connection of confirmationConnections) {
       try {
-        const status = (await connection.getSignatureStatuses([resolvedSignature], { searchTransactionHistory: true })).value[0]
+        const status = (await rpcTimeout(connection.getSignatureStatuses([resolvedSignature], { searchTransactionHistory: true }))).value[0]
         if (status?.err) throw new Error(`Transaction failed on Solana: ${JSON.stringify(status.err)}`)
         if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return resolvedSignature
       } catch (error) {

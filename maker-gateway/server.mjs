@@ -496,10 +496,47 @@ function json(response, status, payload) {
   response.end(JSON.stringify(payload))
 }
 
+async function positionsForOwner(ownerAddress) {
+  if (!PROGRAM_ID) throw new Error('SOLEIL_PROGRAM_ID is not configured.')
+  const owner = new PublicKey(ownerAddress)
+  const accounts = await connection.getProgramAccounts(programId(), {
+    commitment: 'confirmed',
+    filters: [{ dataSize: 146 }, { memcmp: { offset: 0, bytes: owner.toBase58() } }],
+  })
+  if (accounts.length === 0) return []
+  const marketKeys = accounts.map(({ account }) => new PublicKey(account.data.subarray(32, 64)))
+  const markets = await connection.getMultipleAccountsInfo(marketKeys, 'confirmed')
+  return accounts.flatMap(({ pubkey, account }, index) => {
+    const position = new Uint8Array(account.data)
+    const market = markets[index] && new Uint8Array(markets[index].data)
+    if (!market || market.length < 106 || ![1, 2, 3].includes(position[113])) return []
+    return [{
+      positionAddress: pubkey.toBase58(),
+      marketAddress: marketKeys[index].toBase58(),
+      kind: market[80] === 1 ? 'put' : 'call',
+      side: position[64] === 1 ? 'sell' : 'buy',
+      strike: readU64(market, 72) / 100,
+      quantity: readU64(position, 65) / SOLANA_DECIMALS,
+      premium: readU64(position, 73) / 100,
+      premiumLamports: readU64(position, 114),
+      collateralLamports: readU64(position, 122),
+      payoutLamports: readU64(position, 130),
+      reservedLamports: readU64(position, 138),
+      expiryAt: readI64(market, 64),
+      status: position[113] === 1 ? 'Open' : position[113] === 2 ? 'Closed' : 'Settled',
+    }]
+  })
+}
+
 export async function handleGatewayRequest(request, response) {
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`)
     if (url.pathname === '/health') return json(response, 200, { ok: true, configured: Boolean(PROGRAM_ID && MAKER_KEYPAIR && LIQUIDITY_LAMPORTS > 0 && QUOTE_SIZE_LAMPORTS > 0 && COLLATERAL_LAMPORTS_PER_SOL > 0) })
+    if (url.pathname === '/positions') {
+      const owner = url.searchParams.get('owner')
+      if (!owner) return json(response, 400, { error: 'owner is required.' })
+      return json(response, 200, { positions: await positionsForOwner(owner) })
+    }
     if (url.pathname === '/settle') {
       requireConfig()
       const marketAddress = url.searchParams.get('market')
