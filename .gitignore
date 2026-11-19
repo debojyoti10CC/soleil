@@ -7,3 +7,5 @@ maker-keypair.json
 target/
 
 vercel-server.env
+.DS_Store
+Thumbs.db
