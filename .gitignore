@@ -9,3 +9,5 @@ target/
 vercel-server.env
 .DS_Store
 Thumbs.db
+.env.local
+*.log
