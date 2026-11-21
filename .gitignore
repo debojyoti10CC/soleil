@@ -11,3 +11,5 @@ vercel-server.env
 Thumbs.db
 .env.local
 *.log
+.vscode/
+.idea/
